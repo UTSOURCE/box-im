@@ -13,12 +13,10 @@
 1. 服务器支持集群化部署,具有良好的横向扩展能力
 
 
-详细文档: https://www.yuque.com/u1475064/mufu2a  
-官方论坛: https://bbs.boxim.online
+详细文档: https://www.yuque.com/u1475064/mufu2a
 
 #### 近期更新
 发布3.0版本：
-
 - 后台管理端上线,后台管理代码仓库地址:https://gitee.com/bluexsx/box-im-admin
 - 框架和组件版本全面升级: jdk17、springboot3.3、node18等
 - 部分界面，功能、性能优化
@@ -27,7 +25,7 @@
 
 web端: https://www.boxim.online
 
-安卓app: https://www.boxim.online/download/boxim.apk
+安卓app: https://rs.boxim.online/download/boxim.apk
 
 ios-app: 已上架至app store,搜索"盒子IM",下载安装即可
 
@@ -37,7 +35,7 @@ h5: https://www.boxim.online/h5/ ,或扫码：
 
 ![输入图片说明](%E6%88%AA%E5%9B%BE/h5%E4%BA%8C%E7%BB%B4%E7%A0%81.png)
 
-测试账号：张三/Aa123123 李四/Aa123123  TT01~TT09/Aa123123 
+体验账号：张三/Aa123123 李四/Aa123123  TT01~TT09/Aa123123 
 
 说明:  
 1.**请勿利用测试账号辱骂他人、发布低俗内容，否则将直接对您的IP进行封禁**  
@@ -47,8 +45,8 @@ https://www.yuque.com/u1475064/imk5n2/qtezcg32q1d0dr29#SbvXq
 
 
 #### 付费服务
-商业版授权: https://www.yuque.com/u1475064/imk5n2/qtezcg32q1d0dr29  
-付费代部署: https://www.yuque.com/u1475064/imk5n2/qgq5cvgmavallqnl
+商业版: https://www.yuque.com/u1475064/imk5n2/qtezcg32q1d0dr29  
+代部署: https://www.yuque.com/u1475064/imk5n2/qgq5cvgmavallqnl
 
 #### 项目结构
 | 模块          | 功能                               |
