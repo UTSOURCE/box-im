@@ -26,6 +26,13 @@ public interface FriendService extends IService<Friend> {
     List<Friend> findAllFriends();
 
     /**
+     * 查询好友id列表
+     *
+     * @return
+     */
+    List<Long> findFriendIds();
+
+    /**
      * 查询用户的所有好友
      *
      * @param friendIds 好友id

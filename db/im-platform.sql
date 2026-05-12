@@ -25,20 +25,24 @@ create table `im_friend` (
   `is_dnd` tinyint comment '免打扰标识(do not disturb)  0:关闭   1:开启',
   `deleted` tinyint comment '删除标识  0：正常   1：已删除',
   `created_time` datetime default current_timestamp comment '创建时间',
-  key `idx_user_id` (`user_id`),
+	`version` BIGINT DEFAULT 0 comment '版本号',
+  UNIQUE KEY `idx_user_friend_id` (`user_id`, `friend_id`),
   key `idx_friend_id` (`friend_id`)
 ) engine = innodb charset = utf8mb4 comment '好友';
 
 create table `im_private_message` (
   `id` bigint not null auto_increment primary key comment 'id',
-  `tmp_id` varchar(32) comment '临时id,由前端生成',
+  `local_id` varchar(32) comment '业务id,由前端生成',
+	`seq_no` int not null  comment '序列号,单个会话消息的序号连续递增',
   `send_id` bigint not null comment '发送用户id',
   `recv_id` bigint not null comment '接收用户id',
-  `content` text comment '发送内容',
+	`conv_key` varchar(64) not null  comment '会话key，格式:userId1_userId2',
+  `content` text character set utf8mb4 comment '发送内容',
   `type` tinyint not null comment '消息类型 0:文字 1:图片 2:文件 3:语音 4:视频 21:提示',
-  `status` tinyint not null comment '状态 0:未读 1:已读 2:撤回 3:已读',
-  `send_time` datetime default current_timestamp comment '发送时间',
-  key `idx_send_id` (`send_id`),
+  `status` tinyint not null comment '状态 0:未读 1:已发送 2:撤回 3:已读',
+  `send_time` datetime(3) default current_timestamp(3) comment '发送时间',
+  key `idx_conv_key_seq_no`(`conv_key`,`seq_no`),
+  key `idx_send_recv_id` (`send_id`, `recv_id`,`id`),
   key `idx_recv_id` (`recv_id`)
 ) engine = innodb charset = utf8mb4 comment '私聊消息';
 
@@ -67,25 +71,26 @@ create table `im_group_member` (
   `quit` tinyint(1) default 0 comment '是否已退出',
   `quit_time` datetime default null comment '退出时间',
   `created_time` datetime default current_timestamp comment '创建时间',
+  `version` bigint default 0 comment '版本号',
   key `idx_group_id` (`group_id`),
   key `idx_user_id` (`user_id`)
 ) engine = innodb charset = utf8mb4 comment '群成员';
 
 create table `im_group_message` (
   `id` bigint not null auto_increment primary key comment 'id',
-  `tmp_id` varchar(32) comment '临时id,由前端生成',
+  `local_id` varchar(32) comment '业务id,由前端生成',
   `group_id` bigint not null comment '群id',
+	`seq_no` int not null  comment '序列号,单个会话消息的序号连续递增',
   `send_id` bigint not null comment '发送用户id',
   `send_nick_name` varchar(255) default '' comment '发送用户昵称',
-  `recv_ids` varchar(1024) default '' comment '接收用户id,逗号分隔，为空表示发给所有成员',
-  `content` text comment '发送内容',
+  `content` text character set utf8mb4 comment '发送内容',
   `at_user_ids` varchar(1024) comment '被@的用户id列表，逗号分隔',
   `receipt` tinyint(1) default 0 comment '是否回执消息',
   `receipt_ok` tinyint(1) default 0 comment '回执消息是否完成',
   `type` tinyint not null comment '消息类型 0:文字 1:图片 2:文件 3:语音 4:视频 21:提示',
   `status` tinyint default 0 comment '状态 0:未发出  2:撤回 ',
-  `send_time` datetime default current_timestamp comment '发送时间',
-  key `idx_group_id` (group_id)
+  `send_time` datetime(3) default current_timestamp(3) comment '发送时间',
+  key `idx_group_id_seq_no` (`group_id`,`seq_no`)
 ) engine = innodb charset = utf8mb4 comment '群消息';
 
 create table `im_sensitive_word` (

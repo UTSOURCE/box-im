@@ -1,6 +1,7 @@
 package com.bx.implatform.controller;
 
 import com.bx.implatform.dto.PrivateMessageDTO;
+import com.bx.implatform.dto.PrivateMessageHistoryDTO;
 import com.bx.implatform.result.Result;
 import com.bx.implatform.result.ResultUtils;
 import com.bx.implatform.service.PrivateMessageService;
@@ -61,6 +62,12 @@ public class PrivateMessageController {
         @NotNull(message = "页码不能为空") @RequestParam Long page,
         @NotNull(message = "size不能为空") @RequestParam Long size) {
         return ResultUtils.success(privateMessageService.findHistoryMessage(friendId, page, size));
+    }
+
+    @PostMapping("/history")
+    @Operation(summary = "查询历史消息", description = "查询历史消息")
+    public Result loadHistoryMessage(@Valid @RequestBody PrivateMessageHistoryDTO dto) {
+        return ResultUtils.success(privateMessageService.loadHistoryMessage(dto));
     }
 
 }

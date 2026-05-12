@@ -1,6 +1,7 @@
 package com.bx.implatform.controller;
 
 import com.bx.implatform.dto.GroupMessageDTO;
+import com.bx.implatform.dto.GroupMessageHistoryDTO;
 import com.bx.implatform.result.Result;
 import com.bx.implatform.result.ResultUtils;
 import com.bx.implatform.service.GroupMessageService;
@@ -62,6 +63,12 @@ public class GroupMessageController {
         @NotNull(message = "页码不能为空") @RequestParam Long page,
         @NotNull(message = "size不能为空") @RequestParam Long size) {
         return ResultUtils.success(groupMessageService.findHistoryMessage(groupId, page, size));
+    }
+
+    @PostMapping("/history")
+    @Operation(summary = "查询历史消息", description = "查询历史消息")
+    public Result loadHistoryMessage(@Valid @RequestBody GroupMessageHistoryDTO dto) {
+        return ResultUtils.success(groupMessageService.loadHistoryMessage(dto));
     }
 }
 

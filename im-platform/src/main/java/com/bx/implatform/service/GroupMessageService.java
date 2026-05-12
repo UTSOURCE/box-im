@@ -2,6 +2,7 @@ package com.bx.implatform.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.bx.implatform.dto.GroupMessageDTO;
+import com.bx.implatform.dto.GroupMessageHistoryDTO;
 import com.bx.implatform.entity.GroupMessage;
 import com.bx.implatform.vo.GroupMessageVO;
 
@@ -57,4 +58,18 @@ public interface GroupMessageService extends IService<GroupMessage> {
      * @return 聊天记录列表
      */
     List<GroupMessageVO> findHistoryMessage(Long groupId, Long page, Long size);
+
+    /**
+     * 拉取历史消息
+     *
+     * @param dto dto
+     */
+    List<GroupMessageVO> loadHistoryMessage(GroupMessageHistoryDTO dto);
+
+
+    /**
+     * 保存消息
+     * @param message
+     */
+    void saveMessage(GroupMessage message);
 }

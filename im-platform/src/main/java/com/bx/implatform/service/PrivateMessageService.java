@@ -2,6 +2,7 @@ package com.bx.implatform.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.bx.implatform.dto.PrivateMessageDTO;
+import com.bx.implatform.dto.PrivateMessageHistoryDTO;
 import com.bx.implatform.entity.PrivateMessage;
 import com.bx.implatform.vo.PrivateMessageVO;
 
@@ -57,4 +58,18 @@ public interface PrivateMessageService extends IService<PrivateMessage> {
      * @param friendId 好友id
      */
     Long getMaxReadedId(Long friendId);
+
+
+    /**
+     * 保存消息
+     * @param message
+     */
+    void saveMessage(PrivateMessage message);
+
+
+    /**
+     * 加载历史消息
+     * @param dto
+     */
+    List<PrivateMessageVO>  loadHistoryMessage(PrivateMessageHistoryDTO dto);
 }

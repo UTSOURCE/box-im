@@ -76,6 +76,17 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         return friends.stream().map(this::conver).collect(Collectors.toList());
     }
 
+    @Override
+    public List<Long> findFriendIds() {
+        Long userId = SessionContext.getSession().getUserId();
+        LambdaQueryWrapper<Friend> wrapper = Wrappers.lambdaQuery();
+        wrapper.eq(Friend::getUserId, userId);
+        wrapper.eq(Friend::getDeleted, false);
+        wrapper.select(Friend::getFriendId);
+        List<Friend> friends = this.list(wrapper);
+        return friends.stream().map(Friend::getFriendId).collect(Collectors.toList());
+    }
+
     @RedisLock(prefixKey = RedisKey.IM_LOCK_FRIEND_ADD, key = "#userId+':'+#friendId")
     @Transactional(rollbackFor = Exception.class)
     @Override
