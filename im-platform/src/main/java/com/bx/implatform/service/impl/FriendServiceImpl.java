@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.bx.imclient.IMClient;
@@ -23,17 +24,21 @@ import com.bx.implatform.mapper.FriendMapper;
 import com.bx.implatform.mapper.PrivateMessageMapper;
 import com.bx.implatform.mapper.UserMapper;
 import com.bx.implatform.service.FriendService;
+import com.bx.implatform.service.PrivateMessageService;
 import com.bx.implatform.session.SessionContext;
 import com.bx.implatform.session.UserSession;
 import com.bx.implatform.util.BeanUtils;
+import com.bx.implatform.util.ConvUtil;
 import com.bx.implatform.vo.FriendVO;
 import com.bx.implatform.vo.PrivateMessageVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheConfig;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,6 +56,9 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
     private final PrivateMessageMapper privateMessageMapper;
     private final UserMapper userMapper;
     private final IMClient imClient;
+    @Lazy
+    @Autowired
+    private PrivateMessageService privateMessageService;
 
     @Override
     public List<Friend> findAllFriends() {
@@ -66,7 +74,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         LambdaQueryWrapper<Friend> wrapper = Wrappers.lambdaQuery();
         wrapper.eq(Friend::getUserId, userId);
         wrapper.in(Friend::getFriendId, friendIds);
-        wrapper.eq(Friend::getDeleted,false);
+        wrapper.eq(Friend::getDeleted, false);
         return this.list(wrapper);
     }
 
@@ -99,7 +107,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         proxy.bindFriend(userId, friendId);
         proxy.bindFriend(friendId, userId);
         // 推送添加好友提示
-        sendAddTipMessage(friendId);
+        sendAddTipMessage(userId, friendId);
         log.info("添加好友，用户id:{},好友id:{}", userId, friendId);
     }
 
@@ -122,7 +130,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         LambdaQueryWrapper<Friend> wrapper = Wrappers.lambdaQuery();
         wrapper.eq(Friend::getUserId, userId1);
         wrapper.eq(Friend::getFriendId, userId2);
-        wrapper.eq(Friend::getDeleted,false);
+        wrapper.eq(Friend::getDeleted, false);
         return this.exists(wrapper);
     }
 
@@ -175,7 +183,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         LambdaUpdateWrapper<Friend> wrapper = Wrappers.lambdaUpdate();
         wrapper.eq(Friend::getUserId, userId);
         wrapper.eq(Friend::getFriendId, friendId);
-        wrapper.set(Friend::getDeleted,true);
+        wrapper.set(Friend::getDeleted, true);
         this.update(wrapper);
         // 推送好友变化信息
         sendDelFriendMessage(userId, friendId);
@@ -238,18 +246,19 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         imClient.sendPrivateMessage(sendMessage);
     }
 
-    void sendAddTipMessage(Long friendId) {
+    void sendAddTipMessage(Long userId, Long friendId) {
         UserSession session = SessionContext.getSession();
-        PrivateMessage msg = new PrivateMessage();
-        msg.setSendId(session.getUserId());
-        msg.setRecvId(friendId);
-        msg.setContent("你们已成为好友，现在可以开始聊天了");
-        msg.setSendTime(new Date());
-        msg.setStatus(MessageStatus.PENDING.code());
-        msg.setType(MessageType.TIP_TEXT.code());
-        privateMessageMapper.insert(msg);
+        PrivateMessage message = new PrivateMessage();
+        message.setSendId(session.getUserId());
+        message.setRecvId(friendId);
+        message.setConvKey(ConvUtil.buildConvKey(message.getSendId(), message.getRecvId()));
+        message.setContent("你们已成为好友，现在可以开始聊天了");
+        message.setSendTime(new Date());
+        message.setStatus(MessageStatus.PENDING.code());
+        message.setType(MessageType.TIP_TEXT.code());
+        privateMessageService.saveMessage(message);
         // 推给对方
-        PrivateMessageVO messageInfo = BeanUtils.copyProperties(msg, PrivateMessageVO.class);
+        PrivateMessageVO messageInfo = BeanUtils.copyProperties(message, PrivateMessageVO.class);
         IMPrivateMessage<PrivateMessageVO> sendMessage = new IMPrivateMessage<>();
         sendMessage.setSender(new IMUserInfo(session.getUserId(), session.getTerminal()));
         sendMessage.setRecvId(friendId);
@@ -261,19 +270,20 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         imClient.sendPrivateMessage(sendMessage);
     }
 
-    void sendDelTipMessage(Long friendId){
+    void sendDelTipMessage(Long friendId) {
         UserSession session = SessionContext.getSession();
         // 推送好友状态信息
-        PrivateMessage msg = new PrivateMessage();
-        msg.setSendId(session.getUserId());
-        msg.setRecvId(friendId);
-        msg.setSendTime(new Date());
-        msg.setType(MessageType.TIP_TEXT.code());
-        msg.setStatus(MessageStatus.PENDING.code());
-        msg.setContent("你们的好友关系已被解除");
-        privateMessageMapper.insert(msg);
+        PrivateMessage message = new PrivateMessage();
+        message.setSendId(session.getUserId());
+        message.setRecvId(friendId);
+        message.setConvKey(ConvUtil.buildConvKey(message.getSendId(), message.getRecvId()));
+        message.setSendTime(new Date());
+        message.setType(MessageType.TIP_TEXT.code());
+        message.setStatus(MessageStatus.PENDING.code());
+        message.setContent("你们的好友关系已被解除");
+        privateMessageService.saveMessage(message);
         // 推送
-        PrivateMessageVO messageInfo = BeanUtils.copyProperties(msg, PrivateMessageVO.class);
+        PrivateMessageVO messageInfo = BeanUtils.copyProperties(message, PrivateMessageVO.class);
         IMPrivateMessage<PrivateMessageVO> sendMessage = new IMPrivateMessage<>();
         sendMessage.setSender(new IMUserInfo(friendId, IMTerminalType.UNKNOW.code()));
         sendMessage.setRecvId(friendId);

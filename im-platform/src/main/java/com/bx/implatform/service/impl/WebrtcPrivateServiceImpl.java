@@ -16,6 +16,7 @@ import com.bx.implatform.session.SessionContext;
 import com.bx.implatform.session.UserSession;
 import com.bx.implatform.session.WebrtcPrivateSession;
 import com.bx.implatform.util.BeanUtils;
+import com.bx.implatform.util.ConvUtil;
 import com.bx.implatform.util.UserStateUtils;
 import com.bx.implatform.vo.PrivateMessageVO;
 import lombok.RequiredArgsConstructor;
@@ -298,18 +299,19 @@ public class WebrtcPrivateServiceImpl implements WebrtcPrivateService {
 
     private void sendActMessage(WebrtcPrivateSession rtcSession, MessageStatus status, String content) {
         // 保存消息
-        PrivateMessage msg = new PrivateMessage();
-        msg.setSendId(rtcSession.getCallerId());
-        msg.setRecvId(rtcSession.getAcceptorId());
-        msg.setContent(content);
-        msg.setSendTime(new Date());
-        msg.setStatus(status.code());
+        PrivateMessage message = new PrivateMessage();
+        message.setSendId(rtcSession.getCallerId());
+        message.setRecvId(rtcSession.getAcceptorId());
+        message.setConvKey(ConvUtil.buildConvKey(message.getSendId(),message.getRecvId()));
+        message.setContent(content);
+        message.setSendTime(new Date());
+        message.setStatus(status.code());
         MessageType type = rtcSession.getMode().equals(WebrtcMode.VIDEO.getValue()) ? MessageType.ACT_RT_VIDEO
             : MessageType.ACT_RT_VOICE;
-        msg.setType(type.code());
-        privateMessageService.save(msg);
+        message.setType(type.code());
+        privateMessageService.saveMessage(message);
         // 推给发起人
-        PrivateMessageVO messageInfo = BeanUtils.copyProperties(msg, PrivateMessageVO.class);
+        PrivateMessageVO messageInfo = BeanUtils.copyProperties(message, PrivateMessageVO.class);
         IMPrivateMessage<PrivateMessageVO> sendMessage = new IMPrivateMessage<>();
         sendMessage.setSender(new IMUserInfo(rtcSession.getCallerId(), rtcSession.getCallerTerminal()));
         sendMessage.setRecvId(rtcSession.getCallerId());

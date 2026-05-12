@@ -20,6 +20,7 @@ import useFriendStore from './store/friendStore.js'
 import useGroupStore from './store/groupStore.js'
 import useUserStore from './store/userStore.js'
 import useConfigStore from './store/configStore.js'
+import { initDB, getDB } from './db/index.js';
 
 
 Vue.use(PiniaVuePlugin)
@@ -38,17 +39,21 @@ Vue.prototype.$enums = enums; // 枚举
 Vue.prototype.$eventBus = new Vue(); // 全局事件
 Vue.config.productionTip = false;
 
-new Vue({
-  el: '#app',
-  // 配置路由
-  router,
-  pinia,
-  render: h => h(App)
+initDB().then(() => {
+  new Vue({
+    el: '#app',
+    router,
+    pinia,
+    render: h => {
+      // 挂载数据库
+      Vue.prototype.$db = getDB();
+      // 挂载全局的pinia
+      Vue.prototype.chatStore = useChatStore();
+      Vue.prototype.friendStore = useFriendStore();
+      Vue.prototype.groupStore = useGroupStore();
+      Vue.prototype.userStore = useUserStore();
+      Vue.prototype.configStore = useConfigStore();
+      return h(App)
+    }
+  })
 })
-
-// 挂载全局的pinia
-Vue.prototype.chatStore = useChatStore();
-Vue.prototype.friendStore = useFriendStore();
-Vue.prototype.groupStore = useGroupStore();
-Vue.prototype.userStore = useUserStore();
-Vue.prototype.configStore = useConfigStore();
