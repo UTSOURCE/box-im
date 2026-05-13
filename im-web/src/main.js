@@ -8,12 +8,14 @@ import { createPinia, PiniaVuePlugin } from 'pinia'
 import httpRequest from './api/httpRequest';
 import * as socketApi from './api/wssocket';
 import * as messageType from './api/messageType';
+import * as messageUtil from './api/messageUtil';
 import emotion from './api/emotion.js';
 import url from './api/url.js';
 import str from './api/str.js';
 import element from './api/element.js';
 import * as  enums from './api/enums.js';
 import * as  date from './api/date.js';
+import nextSnowflakeId from './api/snowflake.js';
 import './utils/directive/dialogDrag';
 import useChatStore from './store/chatStore.js'
 import useFriendStore from './store/friendStore.js'
@@ -28,8 +30,10 @@ const pinia = createPinia()
 Vue.use(ElementUI);
 // 挂载全局
 Vue.prototype.$wsApi = socketApi;
-Vue.prototype.$msgType = messageType
+Vue.prototype.$msgType = messageType;
+Vue.prototype.$msgUtil = messageUtil;
 Vue.prototype.$date = date;
+Vue.prototype.$nextSnowflakeId = nextSnowflakeId
 Vue.prototype.$http = httpRequest // http请求方法
 Vue.prototype.$emo = emotion; // emo表情
 Vue.prototype.$url = url; // url转换

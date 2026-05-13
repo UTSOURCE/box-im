@@ -100,7 +100,6 @@ export default {
 				// 图片全屏
 				this.$refs.fullImage.open(url);
 			});
-			this.configStore.setAppInit(false)
 			this.loadStore().then(() => {
 				// ws初始化
 				this.$wsApi.connect(process.env.VUE_APP_WS_URL, sessionStorage.getItem("accessToken"));
@@ -110,10 +109,9 @@ export default {
 					} else {
 						// 加载离线消息
 						this.pullOfflineMessage();
-						this.configStore.setAppInit(true);
 					}
 				});
-				this.$wsApi.onMessage((cmd, msgInfo) => {
+				this.$wsApi.onMessage((cmd, message) => {
 					if (cmd == 2) {
 						// 关闭ws
 						this.$wsApi.close(3000)
@@ -125,24 +123,24 @@ export default {
 							}
 						});
 					} else if (cmd == 3) {
-						if (!this.configStore.appInit || this.chatStore.loading) {
+						if (this.chatStore.loading) {
 							// 如果正在拉取离线消息，先放进缓存区，等待消息拉取完成再处理，防止消息乱序
-							this.privateMessagesBuffer.push(msgInfo);
+							this.privateMessagesBuffer.push(message);
 						} else {
 							// 插入私聊消息
-							this.handlePrivateMessage(msgInfo);
+							this.handlePrivateMessage(message);
 						}
 					} else if (cmd == 4) {
-						if (!this.configStore.appInit || this.chatStore.loading) {
+						if (this.chatStore.loading) {
 							// 如果正在拉取离线消息，先放进缓存区，等待消息拉取完成再处理，防止消息乱序
-							this.groupMessagesBuffer.push(msgInfo);
+							this.groupMessagesBuffer.push(message);
 						} else {
 							// 插入群聊消息
-							this.handleGroupMessage(msgInfo);
+							this.handleGroupMessage(message);
 						}
 					} else if (cmd == 5) {
 						// 处理系统消息
-						this.handleSystemMessage(msgInfo);
+						this.handleSystemMessage(message);
 					}
 				});
 				this.$wsApi.onClose((e) => {
@@ -150,7 +148,6 @@ export default {
 						// 断线重连
 						if (!this.reconnecting) {
 							this.reconnectWs();
-							this.configStore.setAppInit(false)
 						}
 					}
 				});
@@ -182,22 +179,22 @@ export default {
 			Promise.all(promises).then(() => {
 				// 加载离线消息
 				this.pullOfflineMessage();
-				this.configStore.setAppInit(true)
 				this.$message.success("重新连接成功");
 			}).catch(() => {
 				this.$message.error("初始化失败");
 				this.onExit();
 			})
 		},
-		loadStore() {
-			return this.userStore.loadUser().then(() => {
-				const promises = [];
-				promises.push(this.friendStore.loadFriend());
-				promises.push(this.groupStore.loadGroup());
-				promises.push(this.chatStore.loadChat());
-				promises.push(this.configStore.loadConfig());
-				return Promise.all(promises);
-			})
+		async loadStore() {
+			await this.userStore.loadUser();
+			await this.$db.open(this.userStore.userInfo.id);
+			// 加载好友要在加载会话前面，否则好友在线状态不显示
+			await this.friendStore.loadFriend();
+			const promises = [];
+			promises.push(this.groupStore.loadGroup());
+			promises.push(this.configStore.loadConfig());
+			promises.push(this.chatStore.loadConversations());
+			return Promise.all(promises);
 		},
 		unloadStore() {
 			this.friendStore.clear();
@@ -206,29 +203,250 @@ export default {
 			this.userStore.clear();
 		},
 		pullOfflineMessage() {
+			let timeStamp = new Date().getTime();
 			this.chatStore.setLoading(true);
 			const promises = [];
-			promises.push(this.pullPrivateOfflineMessage(this.chatStore.privateMsgMaxId));
-			promises.push(this.pullGroupOfflineMessage(this.chatStore.groupMsgMaxId));
-			Promise.all(promises).then(messages => {
+			const maxPrivateMessageId = this.chatStore.findMaxMessageId(this.$enums.CONVERSATION_TYPE.PRIVATE);
+			const maxGroupMessageId = this.chatStore.findMaxMessageId(this.$enums.CONVERSATION_TYPE.GROUP);
+			promises.push(this.pullPrivateOfflineMessage(maxPrivateMessageId));
+			promises.push(this.pullGroupOfflineMessage(maxGroupMessageId));
+			Promise.all(promises).then(async (messages) => {
 				// 处理离线消息
-				messages[0].forEach(m => this.handlePrivateMessage(m));
-				messages[1].forEach(m => this.handleGroupMessage(m));
+				await this.handlePrivateOfflineMessage(messages[0]);
+				await this.handleGroupOfflineMessage(messages[1]);
 				// 处理缓冲区收到的实时消息
-				this.privateMessagesBuffer.forEach(m => this.handlePrivateMessage(m));
-				this.groupMessagesBuffer.forEach(m => this.handleGroupMessage(m));
+				for (const m of this.privateMessagesBuffer) {
+					await this.handlePrivateMessage(m);
+				}
+				for (const m of this.groupMessagesBuffer) {
+					await this.handleGroupMessage(m);
+				}
 				// 清空缓冲区
 				this.privateMessagesBuffer = [];
 				this.groupMessagesBuffer = [];
 				// 关闭加载离线标记
 				this.chatStore.setLoading(false);
-				// 刷新会话
-				this.chatStore.refreshChats();
+				// 打印耗时
+				let size = messages[0].length + messages[1].length;
+				let time = new Date().getTime() - timeStamp;
+				console.log("加载离线消息耗时:", time, ",消息数量:", size)
 			}).catch((e) => {
 				console.log(e)
 				this.$message.error("拉取离线消息失败");
 				this.onExit();
 			})
+		},
+		async handlePrivateOfflineMessage(messages) {
+			if (!messages || !messages.length) {
+				return;
+			}
+			// 会话信息
+			const conversationMap = new Map();
+			// 离线消息,map结构方便查询
+			const messageMap = new Map(messages.map(m => [m.id, m]));
+			// 处理过程中衍生的需要入库的事消息
+			const tmpMessages = [];
+			for (const m of messages) {
+				// 标记这条消息是不是自己发的
+				m.selfSend = m.sendId == this.mine.id;
+				// 好友id
+				const friendId = m.selfSend ? m.recvId : m.sendId;
+				// 标记消息所属会话id
+				const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.PRIVATE, friendId);
+				m.convKey = convKey;
+				// 查询会话
+				let conversation = conversationMap.get(friendId);
+				if (!conversation) {
+					// 查db
+					conversation = await this.$db.findConversationByKey(convKey);
+					if (!conversation) {
+						// 创建新会话
+						const friend = this.loadFriendInfo(friendId);
+						conversation = {
+							key: convKey,
+							type: this.$enums.CONVERSATION_TYPE.PRIVATE,
+							targetId: friend.id,
+							showName: friend.nickName,
+							headImage: friend.headImage,
+							isDnd: friend.isDnd,
+							isTop: false,
+							lastContent: "",
+							lastSendTime: new Date().getTime(),
+							optTime: new Date().getTime(),
+							unreadCount: 0,
+							lastTimeTip: 0,
+							maxMessageId: 0,
+							minSeqNo: 0,
+							maxSeqNo: 0,
+							maxReadedId: 0
+						}
+					}
+					conversationMap.set(friendId, conversation);
+				}
+				// 会话时间	
+				conversation.lastSendTime = m.sendTime;
+				conversation.optTime = m.sendTime;
+				// 记录会话最大消息id
+				conversation.maxMessageId = Math.max(conversation.maxMessageId, m.id)
+				conversation.maxSeqNo = Math.max(conversation.maxSeqNo, m.seqNo)
+				// 会话未读加1
+				if (!m.selfSend && m.status != this.$enums.MESSAGE_STATUS.READED &&
+					m.status != this.$enums.MESSAGE_STATUS.RECALL && m.type != this.$enums.MESSAGE_TYPE.TIP_TEXT) {
+					conversation.unreadCount++;
+				}
+				// 撤回消息
+				if (m.type == this.$enums.MESSAGE_TYPE.RECALL) {
+					const recallMessageId = Number(JSON.parse(m.content).id);
+					const recallMessageTip = JSON.parse(m.content).tip || '';
+					let recallMessage = messageMap.get(recallMessageId);
+					if (!recallMessage) {
+						recallMessage = await this.$db.findMessageById(recallMessageId);
+						if (!recallMessage) {
+							continue;
+						}
+						tmpMessages.push(recallMessage);
+					}
+					// 把原消息改造成一条提示消息
+					recallMessage.status = this.$enums.MESSAGE_STATUS.PENDING;
+					recallMessage.content = recallMessageTip;
+					recallMessage.type = this.$enums.MESSAGE_TYPE.TIP_TEXT
+					// 会话提示语
+					conversation.lastContent = this.$msgUtil.previewContent(recallMessage);
+					conversation.sendNickName = "";
+					// 如果撤回的消息不在本次拉取的离线消息中，则有可能本地库也有消息引用了这条消息
+					if (!messageMap.has(recallMessageId)) {
+						const quoteMessages = await this.$db.findQuoteMessages(recallMessage);
+						// 被引用的消息内容改成"引用的消息已撤回"
+						quoteMessages.forEach((m1) => {
+							m1.quoteMessage.content = JSON.stringify({ key: 'tip.recall.quote' });
+							m1.quoteMessage.status = this.$enums.MESSAGE_STATUS.RECALL;
+							m1.quoteMessage.type = this.$enums.MESSAGE_TYPE.TIP_TEXT
+						})
+						tmpMessages.push(...quoteMessages);
+					}
+				} else {
+					// 会话列表内容
+					conversation.lastContent = this.$msgUtil.previewContent(m);
+				}
+			}
+			// 批量保存会话和消息
+			const conversations = Array.from(conversationMap.values());
+			await this.$db.saveConversationAndMessage(conversations, messages.concat(tmpMessages));
+			this.chatStore.append(conversations);
+		},
+		async handleGroupOfflineMessage(messages) {
+			if (!messages || !messages.length) {
+				return;
+			}
+			// 会话信息
+			const conversationMap = new Map();
+			// 离线消息,map结构方便查询
+			const messageMap = new Map(messages.map(m => [m.id, m]));
+			// 处理过程中衍生的需要入库的事消息
+			const tmpMessages = [];
+			for (const m of messages) {
+				// 标记这条消息是不是自己发的
+				m.selfSend = m.sendId == this.mine.id;
+				// 好友id
+				const groupId = m.groupId;
+				// 标记消息所属会话id
+				const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, groupId);
+				m.convKey = convKey;
+				// 查询会话
+				let conversation = conversationMap.get(groupId);
+				if (!conversation) {
+					// 查db
+					conversation = await this.$db.findConversationByKey(convKey);
+					if (!conversation) {
+						// 创建新会话
+						const group = this.loadGroupInfo(groupId);
+						conversation = {
+							key: convKey,
+							type: this.$enums.CONVERSATION_TYPE.GROUP,
+							targetId: group.id,
+							showName: group.showGroupName,
+							headImage: group.headImageThumb,
+							isDnd: group.isDnd,
+							isTop: false,
+							lastContent: "",
+							lastSendTime: new Date().getTime(),
+							optTime: new Date().getTime(),
+							unreadCount: 0,
+							atMe: false,
+							atAll: false,
+							lastAtMessageId: -1,
+							lastTimeTip: 0,
+							maxMessageId: 0,
+							minSeqNo: 0,
+							maxSeqNo: 0,
+							maxReadedId: 0
+						}
+					}
+					conversationMap.set(groupId, conversation);
+				}
+				// 会话时间	
+				conversation.lastSendTime = m.sendTime;
+				conversation.optTime = m.sendTime;
+				// 记录会话最大消息id
+				conversation.maxMessageId = Math.max(conversation.maxMessageId, m.id);
+				conversation.maxSeqNo = Math.max(conversation.maxSeqNo, m.seqNo)
+				// 会话未读加1
+				if (!m.selfSend && m.status != this.$enums.MESSAGE_STATUS.READED &&
+					m.status != this.$enums.MESSAGE_STATUS.RECALL && m.type != this.$enums.MESSAGE_TYPE.TIP_TEXT) {
+					conversation.unreadCount++;
+				}
+				// 是否有人@我
+				if (!m.selfSend && m.atUserIds && m.status != this.$enums.MESSAGE_STATUS.READED) {
+					const userId = this.mine.id;
+					if (m.atUserIds.indexOf(userId) >= 0) {
+						conversation.atMe = true;
+						conversation.lastAtMessageId = m.id;
+					}
+					if (m.atUserIds.indexOf(-1) >= 0) {
+						conversation.atAll = true;
+						conversation.lastAtMessageId = m.id;
+					}
+				}
+				// 撤回消息
+				if (m.type == this.$enums.MESSAGE_TYPE.RECALL) {
+					const recallMessageId = Number(JSON.parse(m.content).id);
+					const recallMessageTip = JSON.parse(m.content).tip || '';
+					let recallMessage = messageMap.get(recallMessageId);
+					if (!recallMessage) {
+						recallMessage = await this.$db.findMessageById(recallMessageId);
+						if (!recallMessage) {
+							continue;
+						}
+						tmpMessages.push(recallMessage);
+					}
+					// 改造成一条提示消息
+					recallMessage.status = this.$enums.MESSAGE_STATUS.PENDING;
+					recallMessage.content = recallMessageTip;
+					recallMessage.type = this.$enums.MESSAGE_TYPE.TIP_TEXT
+					// 会话提示语
+					conversation.lastContent = this.$msgUtil.previewContent(recallMessage);
+					conversation.sendNickName = "";
+					// 如果撤回的消息不在本次拉取的离线消息中，则有可能本地库也有消息引用了这条消息
+					if (!messageMap.has(recallMessageId)) {
+						const quoteMessages = await this.$db.findQuoteMessages(recallMessage);
+						// 被引用的消息内容改成"引用的消息已撤回"
+						quoteMessages.forEach((m1) => {
+							m1.quoteMessage.content = JSON.stringify({ key: 'tip.recall.quote' });
+							m1.quoteMessage.status = this.$enums.MESSAGE_STATUS.RECALL;
+							m1.quoteMessage.type = this.$enums.MESSAGE_TYPE.TIP_TEXT
+						})
+						tmpMessages.push(...quoteMessages);
+					}
+				} else {
+					// 会话列表内容
+					conversation.lastContent = this.$msgUtil.previewContent(m);
+					// 其他成员发的消息显示发送昵称
+					conversation.sendNickName = m.selfSend ? '' : m.sendNickName;
+				}
+			}
+			const conversations = Array.from(conversationMap.values());
+			await this.$db.saveConversationAndMessage(conversations, messages.concat(tmpMessages));
+			this.chatStore.append(conversations);
 		},
 		pullPrivateOfflineMessage(minId) {
 			return this.$http({
@@ -242,160 +460,169 @@ export default {
 				method: 'GET'
 			})
 		},
-		handlePrivateMessage(msg) {
+		async handlePrivateMessage(m) {
 			// 标记这条消息是不是自己发的
-			msg.selfSend = msg.sendId == this.userStore.userInfo.id;
+			m.selfSend = m.sendId == this.mine.id;
 			// 好友id
-			let friendId = msg.selfSend ? msg.recvId : msg.sendId;
+			const friendId = m.selfSend ? m.recvId : m.sendId;
 			// 会话信息
-			let chatInfo = {
-				type: 'PRIVATE',
-				targetId: friendId
-			}
+			const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.PRIVATE, friendId);
 			// 消息已读处理，清空已读数量
-			if (msg.type == this.$enums.MESSAGE_TYPE.READED) {
-				this.chatStore.resetUnreadCount(chatInfo)
+			if (m.type == this.$enums.MESSAGE_TYPE.READED) {
+				await this.chatStore.resetUnreadCount(convKey)
 				return;
 			}
 			// 消息回执处理,改消息状态为已读
-			if (msg.type == this.$enums.MESSAGE_TYPE.RECEIPT) {
-				this.chatStore.readedMessage({
-					friendId: msg.sendId
-				})
+			if (m.type == this.$enums.MESSAGE_TYPE.RECEIPT) {
+				await this.chatStore.readedMessage(convKey)
 				return;
 			}
 			// 消息撤回
-			if (msg.type == this.$enums.MESSAGE_TYPE.RECALL) {
-				this.chatStore.recallMessage(msg, chatInfo)
+			if (m.type == this.$enums.MESSAGE_TYPE.RECALL) {
+				await this.chatStore.recallMessage(convKey, m)
 				return;
 			}
-			// 新增好友
-			if (msg.type == this.$enums.MESSAGE_TYPE.FRIEND_NEW) {
-				this.friendStore.addFriend(JSON.parse(msg.content));
+			if (m.type == this.$enums.MESSAGE_TYPE.FRIEND_NEW) {
+				this.friendStore.addFriend(JSON.parse(m.content));
 				return;
 			}
 			// 删除好友
-			if (msg.type == this.$enums.MESSAGE_TYPE.FRIEND_DEL) {
+			if (m.type == this.$enums.MESSAGE_TYPE.FRIEND_DEL) {
 				this.friendStore.removeFriend(friendId);
 				return;
 			}
+			// 好友在线状态
+			if (m.type == this.$enums.MESSAGE_TYPE.FRIEND_ONLINE) {
+				this.friendStore.updateOnlineStatus(JSON.parse(m.content));
+				return;
+			}
 			// 对好友设置免打扰
-			if (msg.type == this.$enums.MESSAGE_TYPE.FRIEND_DND) {
-				this.friendStore.setDnd(friendId, JSON.parse(msg.content));
-				this.chatStore.setDnd(chatInfo, JSON.parse(msg.content));
+			if (m.type == this.$enums.MESSAGE_TYPE.FRIEND_DND) {
+				this.friendStore.setDnd(friendId, JSON.parse(m.content));
+				await this.chatStore.setDnd(convKey, JSON.parse(m.content));
 				return;
 			}
 			// 单人webrtc 信令
-			if (this.$msgType.isRtcPrivate(msg.type)) {
-				this.$refs.rtcPrivateVideo.onRTCMessage(msg)
+			if (this.$msgType.isRtcPrivate(m.type)) {
+				this.$refs.rtcPrivateVideo.onRTCMessage(m)
 				return;
 			}
-			// 插入消息
-			if (this.$msgType.isNormal(msg.type) || this.$msgType.isTip(msg.type) || this.$msgType.isAction(msg.type)) {
-				let friend = this.loadFriendInfo(friendId);
-				this.insertPrivateMessage(friend, msg);
-				// 收到对方的消息，说明你的消息对方肯定已读
-				if (msg.id && !msg.selfSend) {
-					this.chatStore.readedMessage({
-						friendId: friendId,
-						maxId: msg.id
-					});
-				}
+			// 消息插入
+			if (this.$msgType.isNormal(m.type) || this.$msgType.isTip(m.type) || this.$msgType.isAction(m.type)) {
+				const friend = this.loadFriendInfo(friendId);
+				await this.insertPrivateMessage(friend, m);
 			}
 		},
-		insertPrivateMessage(friend, msg) {
-			let chatInfo = {
-				type: 'PRIVATE',
+		async insertPrivateMessage(friend, m) {
+			const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.PRIVATE, friend.id);
+			const chatInfo = {
+				type: this.$enums.CONVERSATION_TYPE.PRIVATE,
 				targetId: friend.id,
 				showName: friend.nickName,
 				headImage: friend.headImage,
 				isDnd: friend.isDnd
 			};
 			// 打开会话
-			this.chatStore.openChat(chatInfo);
+			await this.chatStore.openChat(chatInfo);
 			// 插入消息
-			this.chatStore.insertMessage(msg, chatInfo);
+			await this.chatStore.insertMessage(convKey, m);
+			// 通知chat-box组件
+			if (this.chatStore.isActive(convKey)) {
+				this.$eventBus.$emit("newMessage", m);
+			}
 			// 播放提示音
-			if (!friend.isDnd && !this.chatStore.loading && !msg.selfSend && this.$msgType.isNormal(msg.type) &&
-				msg.status != this.$enums.MESSAGE_STATUS.READED) {
+			if (!friend.isDnd && !m.selfSend && this.$msgType.isNormal(m.type)
+				&& m.status != this.$enums.MESSAGE_STATUS.READED) {
 				this.playAudioTip();
 			}
 		},
-		handleGroupMessage(msg) {
+		async handleGroupMessage(m) {
+			console.log("handleGroupMessage:",m)
 			// 标记这条消息是不是自己发的
-			msg.selfSend = msg.sendId == this.userStore.userInfo.id;
-			let chatInfo = {
-				type: 'GROUP',
-				targetId: msg.groupId
+			m.selfSend = m.sendId == this.mine.id;
+			// 会话信息
+			const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, m.groupId);
+			// 发送用户昵称优先显示好友备注的名字
+			if (m.sendId && m.sendNickName) {
+				const f = this.friendStore.findFriend(m.sendId);
+				if (f && !f.deleted && f.remarkNickName) {
+					m.sendNickName = f.remarkNickName;
+				}
 			}
 			// 消息已读处理
-			if (msg.type == this.$enums.MESSAGE_TYPE.READED) {
+			if (m.type == this.$enums.MESSAGE_TYPE.READED) {
 				// 我已读对方的消息，清空已读数量
-				this.chatStore.resetUnreadCount(chatInfo)
+				await this.chatStore.resetUnreadCount(convKey)
+				await this.chatStore.resetAtMessage(convKey)
 				return;
 			}
 			// 消息回执处理
-			if (msg.type == this.$enums.MESSAGE_TYPE.RECEIPT) {
+			if (m.type == this.$enums.MESSAGE_TYPE.RECEIPT) {
 				// 更新消息已读人数
-				let msgInfo = {
-					id: msg.id,
-					groupId: msg.groupId,
-					readedCount: msg.readedCount,
-					receiptOk: msg.receiptOk
+				const message = {
+					localId: m.localId,
+					readedCount: m.readedCount,
+					receiptOk: m.receiptOk
 				};
-				this.chatStore.updateMessage(msgInfo, chatInfo)
+				await this.chatStore.updateMessage(convKey, message)
 				return;
 			}
 			// 消息撤回
-			if (msg.type == this.$enums.MESSAGE_TYPE.RECALL) {
-				this.chatStore.recallMessage(msg, chatInfo)
+			if (m.type == this.$enums.MESSAGE_TYPE.RECALL) {
+				await this.chatStore.recallMessage(convKey, m)
 				return;
 			}
 			// 新增群
-			if (msg.type == this.$enums.MESSAGE_TYPE.GROUP_NEW) {
-				this.groupStore.addGroup(JSON.parse(msg.content));
+			if (m.type == this.$enums.MESSAGE_TYPE.GROUP_NEW) {
+				this.groupStore.addGroup(JSON.parse(m.content));
 				return;
 			}
 			// 删除群
-			if (msg.type == this.$enums.MESSAGE_TYPE.GROUP_DEL) {
-				this.groupStore.removeGroup(msg.groupId);
+			if (m.type == this.$enums.MESSAGE_TYPE.GROUP_DEL) {
+				this.groupStore.removeGroup(m.groupId);
 				return;
 			}
 			// 对群设置免打扰
-			if (msg.type == this.$enums.MESSAGE_TYPE.GROUP_DND) {
-				this.groupStore.setDnd(msg.groupId, JSON.parse(msg.content));
-				this.chatStore.setDnd(chatInfo, JSON.parse(msg.content));
+			if (m.type == this.$enums.MESSAGE_TYPE.GROUP_DND) {
+				this.groupStore.setDnd(m.groupId, JSON.parse(m.content));
+				await this.chatStore.setDnd(convKey, JSON.parse(m.content));
 				return;
 			}
 			// 群视频信令
-			if (this.$msgType.isRtcGroup(msg.type)) {
+			if (this.$msgType.isRtcGroup(m.type)) {
 				this.$nextTick(() => {
-					this.$refs.rtcGroupVideo.onRTCMessage(msg);
+					this.$refs.rtcGroupVideo.onRTCMessage(m);
 				})
 				return;
 			}
 			// 插入群聊消息
-			if (this.$msgType.isNormal(msg.type) || this.$msgType.isTip(msg.type) || this.$msgType.isAction(msg.type)) {
-				let group = this.loadGroupInfo(msg.groupId);
-				this.insertGroupMessage(group, msg);
+			if (this.$msgType.isNormal(m.type) || this.$msgType.isTip(m.type) || this.$msgType.isAction(m.type)) {
+				const group = this.loadGroupInfo(m.groupId);
+				await this.insertGroupMessage(group, m);
 			}
 		},
-		insertGroupMessage(group, msg) {
-			let chatInfo = {
-				type: 'GROUP',
+		async insertGroupMessage(group, m) {
+				const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, group.id);
+			const chatInfo = {
+				type: this.$enums.CONVERSATION_TYPE.GROUP,
 				targetId: group.id,
 				showName: group.showGroupName,
 				headImage: group.headImageThumb,
-				isDnd: group.isDnd
+				isDnd: group.isDnd,
+				isTop: group.isTop
 			};
 			// 打开会话
-			this.chatStore.openChat(chatInfo);
+			await this.chatStore.openChat(chatInfo);
 			// 插入消息
-			this.chatStore.insertMessage(msg, chatInfo);
-			// 播放提示音
-			if (!group.isDnd && !this.chatStore.loading &&
-				!msg.selfSend && this.$msgType.isNormal(msg.type) &&
-				msg.status != this.$enums.MESSAGE_STATUS.READED) {
+			await this.chatStore.insertMessage(convKey, m);
+			// 通知chat-box组件
+			if (this.chatStore.isActive(convKey)) {
+				this.$eventBus.$emit("newMessage", m);
+			}
+			// 提示音和消息提醒
+			if (!group.isDnd && !m.selfSend && !this.chatStore.loading && this.$msgType.isNormal(m.type)
+				&& m.status != this.$enums.MESSAGE_STATUS.READED) {
+				// 播放提示音
 				this.playAudioTip();
 			}
 		},
@@ -420,10 +647,11 @@ export default {
 		},
 		onExit() {
 			this.unloadStore();
-			this.configStore.setAppInit(false);
 			this.$wsApi.close(3000);
 			sessionStorage.removeItem("accessToken");
 			localStorage.setItem("isAutoLogin", false)
+			this.$elm.setTitleTip("");
+			this.$db.close();
 			location.href = "/";
 		},
 		playAudioTip() {
@@ -467,16 +695,19 @@ export default {
 		}
 	},
 	computed: {
+		mine() {
+			return this.userStore.userInfo;
+		},
 		unreadCount() {
 			let unreadCount = 0;
-			let chats = this.chatStore.chats;
-			chats.forEach(chat => {
-				if (!chat.delete && !chat.isDnd) {
-					unreadCount += chat.unreadCount
+			const conversations = this.chatStore.conversations;
+			conversations.forEach((conv) => {
+				if (!conv.isDnd) {
+					unreadCount += conv.unreadCount
 				}
-			});
+			})
 			return unreadCount;
-		}
+		},
 	},
 	watch: {
 		unreadCount: {

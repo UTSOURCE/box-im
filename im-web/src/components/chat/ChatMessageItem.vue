@@ -1,31 +1,31 @@
 <template>
-	<div class="chat-message-item">
-		<div class="message-tip" v-if="msgInfo.type == $enums.MESSAGE_TYPE.TIP_TEXT">
-			{{ msgInfo.content }}
+	<div class="chat-message-item" :class="active ? 'active' : ''">
+		<div class="message-tip" v-if="message.type == $enums.MESSAGE_TYPE.TIP_TEXT">
+			{{ message.content }}
 		</div>
-		<div class="message-tip" v-else-if="msgInfo.type == $enums.MESSAGE_TYPE.TIP_TIME">
-			{{ $date.toTimeText(msgInfo.sendTime) }}
+		<div class="message-tip" v-else-if="message.type == $enums.MESSAGE_TYPE.TIP_TIME">
+			{{ $date.toTimeText(message.sendTime) }}
 		</div>
 		<div class="message-normal" v-else-if="isNormal" :class="{ 'message-mine': mine }">
 			<div class="head-image">
-				<head-image :name="showName" :size="38" :url="headImage" :id="msgInfo.sendId"></head-image>
+				<head-image :name="showName" :size="38" :url="headImage" :id="message.sendId"></head-image>
 			</div>
 			<div class="content">
-				<div v-show="mode == 1 && msgInfo.groupId && !msgInfo.selfSend" class="message-top">
+				<div v-show="mode == 1 && message.groupId && !message.selfSend" class="message-top">
 					<span>{{ showName }}</span>
 				</div>
 				<div v-show="mode == 2" class="message-top">
 					<span>{{ showName }}</span>
-					<span>{{ $date.toTimeText(msgInfo.sendTime) }}</span>
+					<span>{{ $date.toTimeText(message.sendTime) }}</span>
 				</div>
 				<div class="message-bottom" @contextmenu.prevent="showRightMenu($event)">
 					<div ref="chatMsgBox" class="message-content-wrapper">
 						<span class="message-text" v-if="isTextMessage" v-html="htmlText"></span>
-						<div class="message-image" v-else-if="msgInfo.type == $enums.MESSAGE_TYPE.IMAGE"
+						<div class="message-image" v-else-if="message.type == $enums.MESSAGE_TYPE.IMAGE"
 							@click="showFullImageBox()">
 							<img :style="imageStyle" :src="contentData.thumbUrl" loading="lazy" />
 						</div>
-						<div class="message-file" v-else-if="msgInfo.type == $enums.MESSAGE_TYPE.FILE">
+						<div class="message-file" v-else-if="message.type == $enums.MESSAGE_TYPE.FILE">
 							<div class="chat-file-box" v-loading="sending">
 								<div class="chat-file-info">
 									<el-link class="chat-file-name" :underline="true" target="_blank" type="primary"
@@ -38,34 +38,34 @@
 								</div>
 							</div>
 						</div>
-						<div class="message-voice" v-else-if="msgInfo.type == $enums.MESSAGE_TYPE.AUDIO"
+						<div class="message-voice" v-else-if="message.type == $enums.MESSAGE_TYPE.AUDIO"
 							@click="onPlayVoice()">
-							<audio controls :src="JSON.parse(msgInfo.content).url"></audio>
+							<audio controls :src="JSON.parse(message.content).url"></audio>
 						</div>
 						<div title="发送中" v-if="sending" class="sending" v-loading="'true'"></div>
 						<div title="发送失败" v-else-if="sendFail" @click="onSendFail" class="send-fail el-icon-warning">
 						</div>
 					</div>
 					<div class="chat-action message-text" v-if="isAction">
-						<span v-if="msgInfo.type == $enums.MESSAGE_TYPE.ACT_RT_VOICE" title="重新呼叫"
+						<span v-if="message.type == $enums.MESSAGE_TYPE.ACT_RT_VOICE" title="重新呼叫"
 							@click="$emit('call')" class="iconfont icon-chat-voice"></span>
-						<span v-if="msgInfo.type == $enums.MESSAGE_TYPE.ACT_RT_VIDEO" title="重新呼叫"
+						<span v-if="message.type == $enums.MESSAGE_TYPE.ACT_RT_VIDEO" title="重新呼叫"
 							@click="$emit('call')" class="iconfont icon-chat-video"></span>
-						<span>{{ msgInfo.content }}</span>
+						<span>{{ message.content }}</span>
 					</div>
-					<div class="message-status" v-if="!isAction && msgInfo.selfSend && !isGroupMessage">
-						<span class="chat-readed" v-if="msgInfo.status == $enums.MESSAGE_STATUS.READED">已读</span>
+					<div class="message-status" v-if="!isAction && message.selfSend && !isGroupMessage">
+						<span class="chat-readed" v-if="isReaded">已读</span>
 						<span class="chat-unread" v-else>未读</span>
 					</div>
-					<div class="chat-receipt" v-show="msgInfo.receipt&&msgInfo.selfSend" @click="onShowReadedBox">
-						<span v-if="msgInfo.receiptOk" class="icon iconfont icon-ok" title="全体已读"></span>
-						<span v-else>{{ msgInfo.readedCount }}人已读</span>
+					<div class="chat-receipt" v-show="message.receipt && message.selfSend" @click="onShowReadedBox">
+						<span v-if="message.receiptOk" class="icon iconfont icon-ok" title="全体已读"></span>
+						<span v-else>{{ message.readedCount }}人已读</span>
 					</div>
 				</div>
 			</div>
 		</div>
 		<right-menu ref="rightMenu" @select="onSelectMenu"></right-menu>
-		<chat-group-readed ref="chatGroupReadedBox" :msgInfo="msgInfo" :groupMembers="groupMembers"></chat-group-readed>
+		<chat-group-readed ref="chatGroupReadedBox" :message="message" :group="group"></chat-group-readed>
 	</div>
 </template>
 
@@ -81,6 +81,10 @@ export default {
 		ChatGroupReaded
 	},
 	props: {
+		active: {
+			type: Boolean,
+			default: false
+		},
 		mode: {
 			type: Number,
 			default: 1
@@ -97,12 +101,16 @@ export default {
 			type: String,
 			required: true
 		},
-		msgInfo: {
+		conversation: {
 			type: Object,
 			required: true
 		},
-		groupMembers: {
-			type: Array
+		group: {
+			type: Object,
+		},
+		message: {
+			type: Object,
+			required: true
 		},
 		menu: {
 			type: Boolean,
@@ -116,10 +124,10 @@ export default {
 	},
 	methods: {
 		onSendFail() {
-			this.$emit("resend", this.msgInfo);
+			this.$emit("resend", this.message);
 		},
 		showFullImageBox() {
-			let imageUrl = JSON.parse(this.msgInfo.content).originUrl;
+			let imageUrl = JSON.parse(this.message.content).originUrl;
 			if (imageUrl) {
 				this.$eventBus.$emit("openFullImage", imageUrl);
 			}
@@ -128,7 +136,7 @@ export default {
 			if (!this.audio) {
 				this.audio = new Audio();
 			}
-			this.audio.src = JSON.parse(this.msgInfo.content).url;
+			this.audio.src = JSON.parse(this.message.content).url;
 			this.audio.play();
 			this.onPlayVoice = 'RUNNING';
 		},
@@ -136,7 +144,7 @@ export default {
 			this.$refs.rightMenu.open(e, this.menuItems);
 		},
 		onSelectMenu(item) {
-			this.$emit(item.key.toLowerCase(), this.msgInfo);
+			this.$emit(item.key.toLowerCase(), this.message);
 		},
 		onShowReadedBox() {
 			let rect = this.$refs.chatMsgBox.getBoundingClientRect();
@@ -145,13 +153,13 @@ export default {
 	},
 	computed: {
 		sending() {
-			return this.msgInfo.status == this.$enums.MESSAGE_STATUS.SENDING;
+			return this.message.status == this.$enums.MESSAGE_STATUS.SENDING;
 		},
 		sendFail() {
-			return this.msgInfo.status == this.$enums.MESSAGE_STATUS.FAILED;
+			return this.message.status == this.$enums.MESSAGE_STATUS.FAILED;
 		},
 		contentData() {
-			return JSON.parse(this.msgInfo.content)
+			return JSON.parse(this.message.content)
 		},
 		fileSize() {
 			let size = this.contentData.size;
@@ -170,7 +178,7 @@ export default {
 				name: '删除',
 				icon: 'el-icon-delete'
 			});
-			if (this.msgInfo.selfSend && this.msgInfo.id > 0) {
+			if (this.message.selfSend && this.message.id > 0) {
 				items.push({
 					key: 'RECALL',
 					name: '撤回',
@@ -180,23 +188,26 @@ export default {
 			return items;
 		},
 		isTextMessage() {
-			return this.msgInfo.type == this.$enums.MESSAGE_TYPE.TEXT
+			return this.message.type == this.$enums.MESSAGE_TYPE.TEXT
 		},
 		isAction() {
-			return this.$msgType.isAction(this.msgInfo.type);
+			return this.$msgType.isAction(this.message.type);
 		},
 		isNormal() {
-			const type = this.msgInfo.type;
+			const type = this.message.type;
 			return this.$msgType.isNormal(type) || this.$msgType.isAction(type)
 		},
+		isReaded() {
+			return this.message.status == this.$enums.MESSAGE_STATUS.READED || this.conversation.maxReadedId >= this.message.id
+		},
 		htmlText() {
-			let color = this.msgInfo.selfSend ? 'white' : '';
-			let text = this.$str.html2Escape(this.msgInfo.content)
+			let color = this.message.selfSend ? 'white' : '';
+			let text = this.$str.html2Escape(this.message.content)
 			text = this.$url.replaceURLWithHTMLLinks(text, color)
 			return this.$emo.transform(text, 'emoji-normal')
 		},
 		isGroupMessage() {
-			return !!this.msgInfo.groupId;
+			return !!this.message.groupId;
 		},
 		imageStyle() {
 			// 计算图片的显示宽高，要求：任意边不能高于360px,不能低于60px,不能拉伸图片比例
@@ -222,6 +233,10 @@ export default {
 .chat-message-item {
 	padding: 3px 10px;
 	border-radius: 10px;
+
+	&.active {
+		background: var(--im-background-active-dark);
+	}
 
 	.message-tip {
 		line-height: 50px;

@@ -76,12 +76,13 @@ export default {
 				}
 			}).then(() => {
 				this.$message.success("添加成功，对方已成为您的好友");
-				let friend = {
+				const friend = {
 					id: user.id,
 					nickName: user.nickName,
 					headImage: user.headImageThumb,
 					online: user.online,
-					deleted: false
+					deleted: false,
+					version: 0
 				}
 				this.friendStore.addFriend(friend);
 			})

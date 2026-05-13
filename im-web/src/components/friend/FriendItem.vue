@@ -50,7 +50,7 @@ export default {
 			}
 		},
 		onSelectMenu(item) {
-			this.$emit(item.key.toLowerCase(), this.msgInfo);
+			this.$emit(item.key.toLowerCase());
 		}
 	},
 	props: {

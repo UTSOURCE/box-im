@@ -90,7 +90,7 @@ export default defineStore('chatStore', {
 					showName: chatInfo.showName,	// 昵称
 					headImage: chatInfo.headImage,	// 头像
 					isDnd: chatInfo.isDnd,	// 会话是否开启免打扰
-					isTop: chatInfo.isTop,	// 会话是否置顶
+					isTop: false,	// 会话是否置顶
 					lastContent: "",	// 会话最后一条消息的内容
 					lastSendTime: new Date().getTime(),	// 会话最后一条消息的发送时间
 					optTime: new Date().getTime(), 	// 会话最后一次操作时间
@@ -110,6 +110,7 @@ export default defineStore('chatStore', {
 			}
 		},
 		async insertMessage(convKey, m) {
+			console.log("insertMessage:",m)
 			const conv = this.conversationMap.get(convKey);
 			conv.lastContent = messageUtil.previewContent(m);
 			conv.lastSendTime = m.sendTime;
@@ -172,6 +173,7 @@ export default defineStore('chatStore', {
 			await getDB().saveConversationAndMessage([conv], [m])
 		},
 		async updateMessage(convKey, m) {
+			console.log("message:",m)
 			const conv = this.conversationMap.get(convKey);
 			// 查询原消息
 			let message = this.messages.find(m1 => m.localId == m1.localId);
@@ -183,6 +185,7 @@ export default defineStore('chatStore', {
 			}
 			// 通过属性拷贝的方式对字段更新
 			Object.assign(message, m);
+			console.log("message:",message)
 			await getDB().saveMessage(message);
 			// 记录会话最大消息id
 			if (m.id && m.seqNo) {

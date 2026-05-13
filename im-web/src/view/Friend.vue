@@ -100,10 +100,11 @@ export default {
 				this.$http({
 					url: `/friend/delete/${friend.id}`,
 					method: 'delete'
-				}).then(() => {
-					this.$message.success("删除好友成功");
+				}).then(async () => {
+					const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.PRIVATE, friend.id)
 					this.friendStore.removeFriend(friend.id);
-					this.chatStore.removePrivateChat(friend.id);
+					await this.chatStore.remove(convKey);
+					this.$message.success("删除好友成功");
 				})
 			})
 		},
@@ -116,25 +117,32 @@ export default {
 				}
 			}).then(() => {
 				this.$message.success("添加成功，对方已成为您的好友");
-				let friend = {
+				const friend = {
 					id: user.id,
 					nickName: user.nickName,
 					headImage: user.headImageThumb,
-					online: user.online
+					online: user.online,
+					deleted: false,
+					version: 0
 				}
 				this.friendStore.addFriend(friend);
 			})
 		},
-		onSendMessage(friend) {
-			let chat = {
-				type: 'PRIVATE',
+		async onSendMessage(friend) {
+			const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.PRIVATE, friend.id)
+			const chatInfo = {
+				key: convKey,
+				type: this.$enums.CONVERSATION_TYPE.PRIVATE,
 				targetId: friend.id,
-				showName: friend.nickName,
+				showName: friend.showNickName,
 				headImage: friend.headImage,
-				isDnd: friend.isDnd
+				companyName: friend.companyName,
+				isDnd: friend.isDnd,
+				isTop: friend.isTop
 			};
-			this.chatStore.openChat(chat);
-			this.chatStore.setActiveChat(0);
+			await this.chatStore.openChat(chatInfo);
+			await this.chatStore.moveTop(convKey);
+			this.chatStore.setActive(convKey);
 			this.$router.push("/home/chat");
 		},
 		showFullImage() {
@@ -145,10 +153,11 @@ export default {
 		updateFriendInfo() {
 			if (this.isFriend) {
 				// store的数据不能直接修改，深拷贝一份store的数据
-				let friend = JSON.parse(JSON.stringify(this.activeFriend));
+				const friend = JSON.parse(JSON.stringify(this.activeFriend));
 				friend.headImage = this.userInfo.headImageThumb;
 				friend.nickName = this.userInfo.nickName;
-				this.chatStore.updateChatFromFriend(friend);
+				friend.showNickName = friend.remarkNickName ? friend.remarkNickName : friend.nickName;
+				this.chatStore.updateFromFriend(friend);
 				this.friendStore.updateFriend(friend);
 			}
 		},

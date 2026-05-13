@@ -18,11 +18,11 @@
 						</virtual-scroller>
 					</el-tab-pane>
 				</el-tabs>
-				<div v-show="msgInfo.selfSend" class="arrow-right" :style="{ 'top': pos.arrowY + 'px' }">
+				<div v-show="message.selfSend" class="arrow-right" :style="{ 'top': pos.arrowY + 'px' }">
 					<div class="arrow-right-inner">
 					</div>
 				</div>
-				<div v-show="!msgInfo.selfSend" class="arrow-left" :style="{ 'top': pos.arrowY + 'px' }">
+				<div v-show="!message.selfSend" class="arrow-left" :style="{ 'top': pos.arrowY + 'px' }">
 					<div class="arrow-left-inner">
 					</div>
 				</div>
@@ -55,10 +55,10 @@ export default {
 		}
 	},
 	props: {
-		groupMembers: {
-			type: Array
+		group: {
+			type: Object
 		},
-		msgInfo: {
+		message: {
 			type: Object
 		}
 	},
@@ -70,7 +70,7 @@ export default {
 			this.show = true;
 			this.pos.arrowY = 200;
 			// 计算窗口位置
-			if (this.msgInfo.selfSend) {
+			if (this.message.selfSend) {
 				// 自己发的消息弹出在消息的左边
 				this.pos.x = rect.left - 310;
 			} else {
@@ -85,43 +85,43 @@ export default {
 			}
 			this.loadReadedUser()
 		},
-		loadReadedUser() {
-			if (!this.msgInfo.id) {
+		async loadReadedUser() {
+			if (!this.message.id) {
 				return;
 			}
-			this.readedMembers = [];
-			this.unreadMembers = [];
-			this.$http({
+			const userIds = await this.$http({
 				url: "/message/group/findReadedUsers",
 				method: 'get',
-				params: { groupId: this.msgInfo.groupId, messageId: this.msgInfo.id }
-			}).then(userIds => {
-				this.groupMembers.forEach(member => {
-					// 发送者和已退群的不显示
-					if (member.userId == this.msgInfo.sendId || member.quit) {
-						return;
-					}
-					// 区分已读还是未读
-					if (userIds.find(userId => member.userId == userId)) {
-						this.readedMembers.push(member);
-					} else {
-						this.unreadMembers.push(member);
-					}
-				})
-				// 更新已读人数
-				let msgInfo = {
-					id: this.msgInfo.id,
-					groupId: this.msgInfo.groupId,
-					readedCount: this.readedMembers.length
-				}
-				let chatInfo = {
-					type: 'GROUP',
-					targetId: this.msgInfo.groupId
-				}
-				this.chatStore.updateMessage(msgInfo, chatInfo)
+				params: { groupId: this.message.groupId, messageId: this.message.id }
 			})
+			this.readedMembers = [];
+			this.unreadMembers = [];
+			this.groupMembers.forEach(member => {
+				// 发送者和已退群的不显示
+				if (member.userId == this.message.sendId || member.quit) {
+					return;
+				}
+				// 区分已读还是未读
+				if (userIds.find(userId => member.userId == userId)) {
+					this.readedMembers.push(member);
+				} else {
+					this.unreadMembers.push(member);
+				}
+			})
+			// 更新已读人数
+			const message = {
+				localId: this.message.localId,
+				readedCount: this.readedMembers.length
+			}
+			const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, this.message.groupId)
+			this.chatStore.updateMessage(convKey, message)
 		}
-	}
+	},
+	computed: {
+		groupMembers() {
+			return this.group.members;
+		}
+	},
 }
 </script>
 
