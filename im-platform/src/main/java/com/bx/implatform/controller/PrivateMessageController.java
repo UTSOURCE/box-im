@@ -5,6 +5,7 @@ import com.bx.implatform.dto.PrivateMessageHistoryDTO;
 import com.bx.implatform.result.Result;
 import com.bx.implatform.result.ResultUtils;
 import com.bx.implatform.service.PrivateMessageService;
+import com.bx.implatform.session.SessionContext;
 import com.bx.implatform.vo.PrivateMessageVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -25,8 +26,8 @@ public class PrivateMessageController {
 
     @PostMapping("/send")
     @Operation(summary = "发送消息", description = "发送私聊消息")
-    public Result<PrivateMessageVO> sendMessage(@Valid @RequestBody PrivateMessageDTO vo) {
-        return ResultUtils.success(privateMessageService.sendMessage(vo));
+    public Result<PrivateMessageVO> sendMessage(@Valid @RequestBody PrivateMessageDTO dto) {
+        return ResultUtils.success(privateMessageService.sendMessage(dto));
     }
 
     @DeleteMapping("/recall/{id}")
@@ -44,15 +45,17 @@ public class PrivateMessageController {
 
     @PutMapping("/readed")
     @Operation(summary = "消息已读", description = "将会话中接收的消息状态置为已读")
-    public Result readedMessage(@RequestParam Long friendId) {
-        privateMessageService.readedMessage(friendId);
+    public Result readedMessage(@RequestParam Long friendId,@RequestParam(required = false) Long messageId) {
+        privateMessageService.readedMessage(friendId,messageId);
         return ResultUtils.success();
     }
+
 
     @GetMapping("/maxReadedId")
     @Operation(summary = "获取最大已读消息的id", description = "获取某个会话中已读消息的最大id")
     public Result<Long> getMaxReadedId(@RequestParam Long friendId) {
-        return ResultUtils.success(privateMessageService.getMaxReadedId(friendId));
+        Long userId = SessionContext.getSession().getUserId();
+        return ResultUtils.success(privateMessageService.getMaxReadedId(userId, friendId));
     }
 
     @GetMapping("/history")

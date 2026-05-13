@@ -49,15 +49,17 @@ public interface PrivateMessageService extends IService<PrivateMessage> {
      * 消息已读,将整个会话的消息都置为已读状态
      *
      * @param friendId 好友id
+     * @param messageId 消息id
      */
-    void readedMessage(Long friendId);
+    void readedMessage(Long friendId,Long messageId);
 
     /**
      *  获取某个会话中已读消息的最大id
      *
-     * @param friendId 好友id
+     * @param sendId 发送方id
+     * @param recvId 接受方id
      */
-    Long getMaxReadedId(Long friendId);
+    Long getMaxReadedId(Long sendId,Long recvId);
 
 
     /**

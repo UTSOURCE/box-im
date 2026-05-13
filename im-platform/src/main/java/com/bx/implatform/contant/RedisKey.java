@@ -6,6 +6,12 @@ public final class RedisKey {
      *  用户状态 无值:空闲  1:正在忙
      */
     public static final String IM_USER_STATE = "im:user:state";
+
+    /**
+     * 私聊会话已读位置(已读最大id)
+     */
+    public static final String IM_PRIVATE_READED_POSITION = "im:readed:private:position";
+
     /**
      * 已读群聊消息位置(已读最大id)
      */
@@ -107,5 +113,16 @@ public final class RedisKey {
      * 分布式锁-清理过期文件
      */
     public static final String IM_LOCK_FILE_TASK =  "im:lock:task:file";
+
+    /**
+     * 群成员最大版本号
+     */
+    public static final String IM_GROUP_MEMBER_MAX_VERSION = "im:group:member:max_version";
+
+
+    /**
+     * 好友信息最大版本号
+     */
+    public static final String IM_FRIEND_MAX_VERSION = "im:friend:max_version";
 
 }

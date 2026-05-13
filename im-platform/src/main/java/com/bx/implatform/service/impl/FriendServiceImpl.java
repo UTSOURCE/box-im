@@ -1,10 +1,10 @@
 package com.bx.implatform.service.impl;
 
+import cn.hutool.core.util.StrUtil;
 import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.bx.imclient.IMClient;
@@ -21,7 +21,6 @@ import com.bx.implatform.enums.MessageStatus;
 import com.bx.implatform.enums.MessageType;
 import com.bx.implatform.exception.GlobalException;
 import com.bx.implatform.mapper.FriendMapper;
-import com.bx.implatform.mapper.PrivateMessageMapper;
 import com.bx.implatform.mapper.UserMapper;
 import com.bx.implatform.service.FriendService;
 import com.bx.implatform.service.PrivateMessageService;
@@ -31,6 +30,7 @@ import com.bx.implatform.util.BeanUtils;
 import com.bx.implatform.util.ConvUtil;
 import com.bx.implatform.vo.FriendVO;
 import com.bx.implatform.vo.PrivateMessageVO;
+import com.bx.implatform.vo.UserOnlineVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.framework.AopContext;
@@ -39,12 +39,11 @@ import org.springframework.cache.annotation.CacheConfig;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Date;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -53,9 +52,9 @@ import java.util.stream.Collectors;
 @CacheConfig(cacheNames = RedisKey.IM_CACHE_FRIEND)
 public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> implements FriendService {
 
-    private final PrivateMessageMapper privateMessageMapper;
     private final UserMapper userMapper;
     private final IMClient imClient;
+    private final RedisTemplate<String, Object> redisTemplate;
     @Lazy
     @Autowired
     private PrivateMessageService privateMessageService;
@@ -79,9 +78,13 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
     }
 
     @Override
-    public List<FriendVO> findFriends() {
-        List<Friend> friends = this.findAllFriends();
-        return friends.stream().map(this::conver).collect(Collectors.toList());
+    public List<FriendVO> findFriends(Long version) {
+        Long userId = SessionContext.getSession().getUserId();
+        LambdaQueryWrapper<Friend> wrapper = Wrappers.lambdaQuery();
+        wrapper.eq(Friend::getUserId, userId);
+        wrapper.gt(version > 0, Friend::getVersion, version);
+        List<Friend> friends = this.list(wrapper);
+        return friends.stream().map(this::convert).collect(Collectors.toList());
     }
 
     @Override
@@ -148,6 +151,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         if (Objects.isNull(friend)) {
             friend = new Friend();
         }
+        friend.setVersion(getNextVersion());
         friend.setUserId(userId);
         friend.setFriendId(friendId);
         User friendInfo = userMapper.selectById(friendId);
@@ -166,6 +170,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         wrapper.eq(Friend::getUserId, session.getUserId());
         wrapper.eq(Friend::getFriendId, dto.getFriendId());
         wrapper.set(Friend::getIsDnd, dto.getIsDnd());
+        wrapper.set(Friend::getVersion, getNextVersion());
         this.update(wrapper);
         // 推送同步消息
         sendSyncDndMessage(dto.getFriendId(), dto.getIsDnd());
@@ -184,6 +189,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         wrapper.eq(Friend::getUserId, userId);
         wrapper.eq(Friend::getFriendId, friendId);
         wrapper.set(Friend::getDeleted, true);
+        wrapper.set(Friend::getVersion, getNextVersion());
         this.update(wrapper);
         // 推送好友变化信息
         sendDelFriendMessage(userId, friendId);
@@ -199,16 +205,51 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         if (Objects.isNull(friend)) {
             throw new GlobalException("对方不是您的好友");
         }
-        return conver(friend);
+        return convert(friend);
     }
 
-    private FriendVO conver(Friend f) {
+    @Override
+    public List<UserOnlineVO> findOnlineTerminals() {
+        // 查询好友id列表
+        List<Long> ids = findFriendIds();
+        // 查询在线的好友终端
+        Map<Long, List<IMTerminalType>> onlineMap = imClient.getOnlineTerminal(ids);
+        // 返回vo
+        List<UserOnlineVO> vos = new ArrayList<>();
+        onlineMap.forEach((userId, terminals) -> terminals.forEach(terminal -> {
+            UserOnlineVO vo = new UserOnlineVO();
+            vo.setUserId(userId);
+            vo.setTerminal(terminal.code());
+            vo.setOnline(true);
+            vos.add(vo);
+        }));
+        return vos;
+    }
+
+    @Override
+    public Long getNextVersion() {
+        String key = StrUtil.join(":", RedisKey.IM_FRIEND_MAX_VERSION);
+        if (redisTemplate.hasKey(key)) {
+            return redisTemplate.opsForValue().increment(key);
+        } else {
+            LambdaQueryWrapper<Friend> wrapper = Wrappers.lambdaQuery();
+            wrapper.orderByDesc(Friend::getVersion);
+            wrapper.last("limit 1");
+            Friend friend = this.getOne(wrapper);
+            Long version = Objects.isNull(friend) ? 1 : friend.getVersion() + 1;
+            redisTemplate.opsForValue().set(key, version);
+            return version;
+        }
+    }
+
+    private FriendVO convert(Friend f) {
         FriendVO vo = new FriendVO();
         vo.setId(f.getFriendId());
         vo.setHeadImage(f.getFriendHeadImage());
         vo.setNickName(f.getFriendNickName());
         vo.setDeleted(f.getDeleted());
         vo.setIsDnd(f.getIsDnd());
+        vo.setVersion(f.getVersion());
         return vo;
     }
 
@@ -219,7 +260,7 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         msgInfo.setRecvId(userId);
         msgInfo.setSendTime(new Date());
         msgInfo.setType(MessageType.FRIEND_NEW.code());
-        FriendVO vo = conver(friend);
+        FriendVO vo = convert(friend);
         msgInfo.setContent(JSON.toJSONString(vo));
         IMPrivateMessage<PrivateMessageVO> sendMessage = new IMPrivateMessage<>();
         sendMessage.setSender(new IMUserInfo(friendId, IMTerminalType.UNKNOW.code()));

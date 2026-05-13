@@ -1,5 +1,6 @@
 package com.bx.implatform.task.consumer;
 
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.bx.imclient.IMClient;
 import com.bx.imcommon.enums.IMTerminalType;
 import com.bx.imcommon.model.IMGroupMessage;
@@ -46,18 +47,18 @@ public class GroupBannedConsumerTask extends RedisMQConsumer<GroupBanDTO> {
         // 群聊成员列表
         List<Long> userIds = groupMemberService.findUserIdsByGroupId(dto.getId());
         // 保存消息
-        GroupMessage msg = new GroupMessage();
-        msg.setGroupId(dto.getId());
-        String tip = "本群聊已被管理员封禁,原因:" + dto.getReason();
-        msg.setContent(tip);
-        msg.setSendId(Constant.SYS_USER_ID);
-        msg.setSendTime(new Date());
-        msg.setStatus(MessageStatus.PENDING.code());
-        msg.setSendNickName("系统管理员");
-        msg.setType(MessageType.TIP_TEXT.code());
-        groupMessageService.save(msg);
+        GroupMessage message = new GroupMessage();
+        message.setLocalId(IdWorker.getIdStr());
+        message.setGroupId(dto.getId());
+        message.setContent("本群聊已被管理员封禁,原因:" + dto.getReason());
+        message.setSendId(Constant.SYS_USER_ID);
+        message.setSendTime(new Date());
+        message.setStatus(MessageStatus.PENDING.code());
+        message.setSendNickName("系统管理员");
+        message.setType(MessageType.TIP_TEXT.code());
+        groupMessageService.saveMessage(message);
         // 推送提示语到群聊中
-        GroupMessageVO msgInfo = BeanUtils.copyProperties(msg, GroupMessageVO.class);
+        GroupMessageVO msgInfo = BeanUtils.copyProperties(message, GroupMessageVO.class);
         IMGroupMessage<GroupMessageVO> sendMessage = new IMGroupMessage<>();
         sendMessage.setSender(new IMUserInfo(Constant.SYS_USER_ID, IMTerminalType.PC.code()));
         sendMessage.setRecvIds(userIds);

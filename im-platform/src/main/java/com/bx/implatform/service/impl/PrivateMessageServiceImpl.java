@@ -196,10 +196,17 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         return vos.stream().sorted(Comparator.comparing(PrivateMessageVO::getId)).collect(Collectors.toList());
     }
 
-    @Transactional(rollbackFor = Exception.class)
     @Override
-    public void readedMessage(Long friendId) {
+    public void readedMessage(Long friendId, Long messageId) {
         UserSession session = SessionContext.getSession();
+        // 如果前端没有传消息id,取出最后一条消息id
+        String convKey = ConvUtil.buildConvKey(session.getUserId(), friendId);
+        if (Objects.isNull(messageId)) {
+            messageId = findMaxMessageId(convKey);
+            if (messageId < 0) {
+                return;
+            }
+        }
         // 推送消息给自己，清空会话列表上的已读数量
         PrivateMessageVO msgInfo = new PrivateMessageVO();
         msgInfo.setType(MessageType.READED.code());
@@ -216,6 +223,9 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         msgInfo.setType(MessageType.RECEIPT.code());
         msgInfo.setSendId(session.getUserId());
         msgInfo.setRecvId(friendId);
+        HashMap contentMap = new HashMap();
+        contentMap.put("id", messageId);
+        msgInfo.setContent(JSON.toJSONString(contentMap));
         sendMessage = new IMPrivateMessage<>();
         sendMessage.setSender(new IMUserInfo(session.getUserId(), session.getTerminal()));
         sendMessage.setRecvId(friendId);
@@ -223,29 +233,43 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         sendMessage.setSendResult(false);
         sendMessage.setData(msgInfo);
         imClient.sendPrivateMessage(sendMessage);
-        // 修改消息状态为已读
-        LambdaUpdateWrapper<PrivateMessage> updateWrapper = Wrappers.lambdaUpdate();
-        updateWrapper.eq(PrivateMessage::getSendId, friendId).eq(PrivateMessage::getRecvId, session.getUserId())
-            .eq(PrivateMessage::getStatus, MessageStatus.DELIVERED.code())
-            .set(PrivateMessage::getStatus, MessageStatus.READED.code());
-        this.update(updateWrapper);
+        // 会话最大的消息id
+        Long lastMaxReadedId = getMaxReadedId(friendId, session.getUserId());
+        if (lastMaxReadedId < messageId) {
+            // 修改消息状态为已读
+            LambdaUpdateWrapper<PrivateMessage> updateWrapper = Wrappers.lambdaUpdate();
+            updateWrapper.eq(PrivateMessage::getSendId, friendId);
+            updateWrapper.eq(PrivateMessage::getRecvId, session.getUserId());
+            updateWrapper.gt(PrivateMessage::getId, lastMaxReadedId);
+            updateWrapper.ne(PrivateMessage::getStatus, MessageStatus.RECALL.code());
+            updateWrapper.set(PrivateMessage::getStatus, MessageStatus.READED.code());
+            this.update(updateWrapper);
+            // 记录新的最大已读消息id
+            String key = StrUtil.join(":", RedisKey.IM_PRIVATE_READED_POSITION, friendId, session.getUserId());
+            redisTemplate.opsForValue().set(key, messageId, Constant.MAX_OFFLINE_MESSAGE_DAYS, TimeUnit.DAYS);
+        }
         log.info("消息已读，接收方id:{},发送方id:{}", session.getUserId(), friendId);
     }
 
     @Override
-    public Long getMaxReadedId(Long friendId) {
-        UserSession session = SessionContext.getSession();
-        LambdaQueryWrapper<PrivateMessage> wrapper = Wrappers.lambdaQuery();
-        wrapper.eq(PrivateMessage::getSendId, session.getUserId()).eq(PrivateMessage::getRecvId, friendId)
-            .eq(PrivateMessage::getStatus, MessageStatus.READED.code()).orderByDesc(PrivateMessage::getId)
-            .select(PrivateMessage::getId).last("limit 1");
-        PrivateMessage message = this.getOne(wrapper);
-        if (Objects.isNull(message)) {
-            return -1L;
+    public Long getMaxReadedId(Long sendId, Long recvId) {
+        String key = StrUtil.join(":", RedisKey.IM_PRIVATE_READED_POSITION, sendId, recvId);
+        Object id = redisTemplate.opsForValue().get(key);
+        if (!Objects.isNull(id)) {
+            return Long.parseLong(id.toString());
         }
-        return message.getId();
+        LambdaQueryWrapper<PrivateMessage> wrapper = Wrappers.lambdaQuery();
+        wrapper.eq(PrivateMessage::getSendId, sendId);
+        wrapper.eq(PrivateMessage::getRecvId, recvId);
+        wrapper.eq(PrivateMessage::getStatus, MessageStatus.READED.code());
+        wrapper.orderByDesc(PrivateMessage::getId);
+        wrapper.select(PrivateMessage::getId).last("limit 1");
+        PrivateMessage message = this.getOne(wrapper);
+        if (!Objects.isNull(message)) {
+            return message.getId();
+        }
+        return -1L;
     }
-
     /**
      * 保存消息 加分布式锁是为了让数据库自增id和seq_no保持同序
      */

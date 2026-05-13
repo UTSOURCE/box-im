@@ -169,12 +169,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             wrapper1.eq(Friend::getFriendId, session.getUserId());
             wrapper1.set(Friend::getFriendNickName,vo.getNickName());
             wrapper1.set(Friend::getFriendHeadImage,vo.getHeadImageThumb());
+            wrapper1.set(Friend::getVersion, friendService.getNextVersion());
             friendService.update(wrapper1);
             // 更新群聊中的昵称和头像
             LambdaUpdateWrapper<GroupMember> wrapper2 = Wrappers.lambdaUpdate();
             wrapper2.eq(GroupMember::getUserId, session.getUserId());
             wrapper2.set(GroupMember::getHeadImage,vo.getHeadImageThumb());
             wrapper2.set(GroupMember::getUserNickName,vo.getNickName());
+            wrapper2.set(GroupMember::getVersion,groupMemberService.getNextVersion());
             groupMemberService.update(wrapper2);
         }
         // 更新用户信息

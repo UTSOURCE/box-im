@@ -51,11 +51,6 @@ public class GroupMessage {
     private String sendNickName;
 
     /**
-     * 接受用户id,为空表示全体发送
-     */
-    private String recvIds;
-
-    /**
      * @用户列表
      */
     private String atUserIds;

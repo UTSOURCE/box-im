@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.bx.implatform.dto.FriendDndDTO;
 import com.bx.implatform.entity.Friend;
 import com.bx.implatform.vo.FriendVO;
+import com.bx.implatform.vo.UserOnlineVO;
 
 import java.util.List;
 
@@ -43,10 +44,10 @@ public interface FriendService extends IService<Friend> {
     /**
      * 查询当前用户的所有好友
      *
+     * @param version 版本号
      * @return 好友列表
      */
-    List<FriendVO> findFriends();
-
+    List<FriendVO> findFriends(Long version);
     /**
      * 添加好友，互相建立好友关系
      *
@@ -84,5 +85,20 @@ public interface FriendService extends IService<Friend> {
      * @param dto
      */
     void setDnd(FriendDndDTO dto);
+
+    /**
+     * 查询好友在线的终端列表
+     *
+     * @return
+     */
+    List<UserOnlineVO> findOnlineTerminals();
+
+
+    /**
+     * 获取全局版本号
+     *
+     * @return
+     */
+    Long getNextVersion();
 
 }

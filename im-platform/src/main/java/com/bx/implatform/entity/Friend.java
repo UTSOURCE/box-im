@@ -60,4 +60,9 @@ public class Friend{
      */
     private Date createdTime;
 
+    /**
+     * 版本号
+     */
+    private Long version;
+
 }
