@@ -138,26 +138,6 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         return vo;
     }
 
-    @Override
-    public List<PrivateMessageVO> findHistoryMessage(Long friendId, Long page, Long size) {
-        page = page > 0 ? page : 1;
-        size = size > 0 ? size : 10;
-        Long userId = SessionContext.getSession().getUserId();
-        long stIdx = (page - 1) * size;
-        QueryWrapper<PrivateMessage> wrapper = new QueryWrapper<>();
-        wrapper.lambda().and(
-                wrap -> wrap.and(wp -> wp.eq(PrivateMessage::getSendId, userId).eq(PrivateMessage::getRecvId, friendId))
-                    .or(wp -> wp.eq(PrivateMessage::getRecvId, userId).eq(PrivateMessage::getSendId, friendId)))
-            .ne(PrivateMessage::getStatus, MessageStatus.RECALL.code()).orderByDesc(PrivateMessage::getId)
-            .last("limit " + stIdx + "," + size);
-
-        List<PrivateMessage> messages = this.list(wrapper);
-        List<PrivateMessageVO> messageInfos =
-            messages.stream().map(m -> BeanUtils.copyProperties(m, PrivateMessageVO.class))
-                .collect(Collectors.toList());
-        log.info("拉取聊天记录，用户id:{},好友id:{}，数量:{}", userId, friendId, messageInfos.size());
-        return messageInfos;
-    }
 
     @Override
     public List<PrivateMessageVO> loadOfflineMessage(Long minId) {

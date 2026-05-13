@@ -57,13 +57,6 @@ public class GroupMessageController {
         return ResultUtils.success(groupMessageService.findReadedUsers(groupId, messageId));
     }
 
-    @GetMapping("/history")
-    @Operation(summary = "查询聊天记录", description = "查询聊天记录")
-    public Result<List<GroupMessageVO>> recallMessage(@NotNull(message = "群聊id不能为空") @RequestParam Long groupId,
-        @NotNull(message = "页码不能为空") @RequestParam Long page,
-        @NotNull(message = "size不能为空") @RequestParam Long size) {
-        return ResultUtils.success(groupMessageService.findHistoryMessage(groupId, page, size));
-    }
 
     @PostMapping("/history")
     @Operation(summary = "查询历史消息", description = "查询历史消息")

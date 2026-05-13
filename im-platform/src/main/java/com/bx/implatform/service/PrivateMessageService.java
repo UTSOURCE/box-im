@@ -26,16 +26,6 @@ public interface PrivateMessageService extends IService<PrivateMessage> {
      */
     PrivateMessageVO recallMessage(Long id);
 
-    /**
-     * 拉取历史聊天记录
-     *
-     * @param friendId 好友id
-     * @param page     页码
-     * @param size     页码大小
-     * @return 聊天记录列表
-     */
-    List<PrivateMessageVO> findHistoryMessage(Long friendId, Long page, Long size);
-
 
     /**
      * 拉取离线消息，只能拉取最近1个月的消息

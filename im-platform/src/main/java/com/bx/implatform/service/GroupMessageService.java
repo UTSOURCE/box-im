@@ -50,16 +50,6 @@ public interface GroupMessageService extends IService<GroupMessage> {
     List<Long> findReadedUsers(Long groupId, Long messageId);
 
     /**
-     * 拉取历史聊天记录
-     *
-     * @param groupId 群聊id
-     * @param page    页码
-     * @param size    页码大小
-     * @return 聊天记录列表
-     */
-    List<GroupMessageVO> findHistoryMessage(Long groupId, Long page, Long size);
-
-    /**
      * 拉取历史消息
      *
      * @param dto dto

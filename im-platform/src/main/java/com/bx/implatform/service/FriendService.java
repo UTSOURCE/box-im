@@ -64,6 +64,23 @@ public interface FriendService extends IService<Friend> {
     void delFriend(Long friendId);
 
     /**
+     * 推送在线状态给所有好友
+     *
+     * @param userId   用户id
+     * @param terminal 终端类型
+     */
+    void sendOnlineStatus(Long userId, Integer terminal);
+
+    /**
+     * 推送在线状态给所有好友
+     *
+     * @param userId   用户id
+     * @param friendId 好友id
+     * @param terminal 终端类型
+     */
+    void sendOnlineStatus(Long userId, Long friendId, Integer terminal);
+
+    /**
      * 查询指定的某个好友信息
      *
      * @param friendId 好友的用户id

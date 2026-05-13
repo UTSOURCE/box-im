@@ -56,7 +56,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, GroupMessage>
     implements GroupMessageService {
-    private final GroupService groupService;
     private final GroupMemberService groupMemberService;
     private final RedisTemplate<String, Object> redisTemplate;
     private final IMClient imClient;
@@ -68,14 +67,13 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
     public GroupMessageVO sendMessage(GroupMessageDTO dto) {
         validMessage(dto);
         UserSession session = SessionContext.getSession();
-        Group group = groupService.getAndCheckById(dto.getGroupId());
         GroupMember member = groupMemberService.findByGroupAndUserId(dto.getGroupId(), session.getUserId());
         // 是否在群聊里面
         if (Objects.isNull(member) || member.getQuit()) {
             throw new GlobalException("您已不在群聊里面，无法发送消息");
         }
         // 群聊成员列表
-        List<Long> userIds = groupMemberService.findUserIdsByGroupId(group.getId());
+        List<Long> userIds = groupMemberService.findUserIdsByGroupId(dto.getGroupId());
         // 不用发给自己
         userIds = userIds.stream().filter(id -> !session.getUserId().equals(id)).collect(Collectors.toList());
         // 保存消息
@@ -196,7 +194,7 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
             quitWrapper.between(GroupMessage::getSendTime, minDate, quitMember.getQuitTime());
             quitWrapper.eq(GroupMessage::getGroupId, quitMember.getGroupId());
             quitWrapper.orderByDesc(GroupMessage::getId);
-            quitWrapper.last("limit 1000");
+            quitWrapper.last("limit 100");
             List<GroupMessage> groupMessages = this.list(quitWrapper);
             quitMessages.addAll(groupMessages);
         });
@@ -386,29 +384,6 @@ public class GroupMessageServiceImpl extends ServiceImpl<GroupMessageMapper, Gro
             vos.add(vo);
         }
         return vos;
-    }
-
-    @Override
-    public List<GroupMessageVO> findHistoryMessage(Long groupId, Long page, Long size) {
-        page = page > 0 ? page : 1;
-        size = size > 0 ? size : 10;
-        Long userId = SessionContext.getSession().getUserId();
-        long stIdx = (page - 1) * size;
-        // 群聊成员信息
-        GroupMember member = groupMemberService.findByGroupAndUserId(groupId, userId);
-        if (Objects.isNull(member) || member.getQuit()) {
-            throw new GlobalException("您已不在群聊中");
-        }
-        // 查询聊天记录，只查询加入群聊时间之后的消息
-        QueryWrapper<GroupMessage> wrapper = new QueryWrapper<>();
-        wrapper.lambda().eq(GroupMessage::getGroupId, groupId).gt(GroupMessage::getSendTime, member.getCreatedTime())
-            .ne(GroupMessage::getStatus, MessageStatus.RECALL.code()).orderByDesc(GroupMessage::getId)
-            .last("limit " + stIdx + "," + size);
-        List<GroupMessage> messages = this.list(wrapper);
-        List<GroupMessageVO> messageInfos =
-            messages.stream().map(m -> BeanUtils.copyProperties(m, GroupMessageVO.class)).collect(Collectors.toList());
-        log.info("拉取群聊记录，用户id:{},群聊id:{}，数量:{}", userId, groupId, messageInfos.size());
-        return messageInfos;
     }
 
     /**

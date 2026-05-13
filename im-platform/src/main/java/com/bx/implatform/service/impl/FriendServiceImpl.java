@@ -124,7 +124,52 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
         proxy.unbindFriend(friendId, userId);
         // 推送解除好友提示
         sendDelTipMessage(friendId);
+        // 模拟对方向我推送在线状态
+        IMTerminalType.codes().forEach(terminal -> sendOnlineStatus(friendId, userId, terminal));
         log.info("删除好友，用户id:{},好友id:{}", userId, friendId);
+    }
+
+
+    @Override
+    public void sendOnlineStatus(Long userId, Integer terminal) {
+//        List<Long> fids = loadAllFriendIds(userId);
+//        UserOnlineVO vo = new UserOnlineVO();
+//        vo.setUserId(userId);
+//        vo.setTerminal(terminal);
+//        vo.setOnline(imClient.isOnline(userId, IMTerminalType.fromCode(terminal)));
+//        // 广播给所有好友
+//        PrivateMessageVO msgInfo = new PrivateMessageVO();
+//        msgInfo.setSendId(userId);
+//        msgInfo.setType(MessageType.FRIEND_ONLINE.code());
+//        msgInfo.setContent(JSON.toJSONString(vo));
+//        IMBatchPrivateMessage<PrivateMessageVO> sendMessage = new IMBatchPrivateMessage<>();
+//        sendMessage.setSender(new IMUserInfo(userId, IMTerminalType.UNKNOW.code()));
+//        sendMessage.setRecvIds(fids);
+//        sendMessage.setData(msgInfo);
+//        sendMessage.setSendResult(false);
+//        sendMessage.setSendToSelf(false);
+//        imClient.sendBatchPrivateMessage((sendMessage));
+    }
+
+    @Override
+    public void sendOnlineStatus(Long userId, Long friendId, Integer terminal) {
+        UserOnlineVO vo = new UserOnlineVO();
+        vo.setUserId(userId);
+        vo.setTerminal(terminal);
+        vo.setOnline(imClient.isOnline(userId, IMTerminalType.fromCode(terminal)));
+        PrivateMessageVO msgInfo = new PrivateMessageVO();
+        msgInfo.setSendId(userId);
+        msgInfo.setRecvId(friendId);
+        msgInfo.setSendTime(new Date());
+        msgInfo.setType(MessageType.FRIEND_ONLINE.code());
+        msgInfo.setContent(JSON.toJSONString(vo));
+        IMPrivateMessage<PrivateMessageVO> sendMessage = new IMPrivateMessage<>();
+        sendMessage.setSender(new IMUserInfo(userId, IMTerminalType.UNKNOW.code()));
+        sendMessage.setRecvId(friendId);
+        sendMessage.setData(msgInfo);
+        sendMessage.setSendResult(false);
+        sendMessage.setSendToSelf(false);
+        imClient.sendPrivateMessage(sendMessage);
     }
 
     @Cacheable(key = "#userId1+':'+#userId2")
