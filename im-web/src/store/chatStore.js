@@ -110,7 +110,6 @@ export default defineStore('chatStore', {
 			}
 		},
 		async insertMessage(convKey, m) {
-			console.log("insertMessage:",m)
 			const conv = this.conversationMap.get(convKey);
 			conv.lastContent = messageUtil.previewContent(m);
 			conv.lastSendTime = m.sendTime;
@@ -173,7 +172,6 @@ export default defineStore('chatStore', {
 			await getDB().saveConversationAndMessage([conv], [m])
 		},
 		async updateMessage(convKey, m) {
-			console.log("message:",m)
 			const conv = this.conversationMap.get(convKey);
 			// 查询原消息
 			let message = this.messages.find(m1 => m.localId == m1.localId);
@@ -185,7 +183,6 @@ export default defineStore('chatStore', {
 			}
 			// 通过属性拷贝的方式对字段更新
 			Object.assign(message, m);
-			console.log("message:",message)
 			await getDB().saveMessage(message);
 			// 记录会话最大消息id
 			if (m.id && m.seqNo) {
@@ -216,6 +213,9 @@ export default defineStore('chatStore', {
 		},
 		// 重置消息到底部30条
 		async resetMessages(convKey) {
+			if (!this.isActive(convKey)) {
+				return;
+			}
 			this.setIsInBottom(true);
 			const conv = this.conversationMap.get(convKey);
 			this.minSeqNo = 0;
@@ -240,6 +240,9 @@ export default defineStore('chatStore', {
 		},
 		// 拉取上一页消息
 		async loadLastPageMessage(convKey, size) {
+			if (!this.isActive(convKey)) {
+				return;
+			}
 			// 防止滚动事件重复触发导致重复拉取
 			if (this.loadingMessage || !this.hasMoreLastMessage) {
 				return;
@@ -272,6 +275,9 @@ export default defineStore('chatStore', {
 		},
 		// 拉取下一页消息
 		async loadNextPageMessage(convKey, size) {
+			if (!this.isActive(convKey)) {
+				return;
+			}
 			// 防止滚动事件重复触发导致重复拉取
 			if (this.loadingMessage || !this.hasMoreNextMessage) {
 				return;
@@ -297,6 +303,9 @@ export default defineStore('chatStore', {
 		},
 		// 定位消息
 		async locateToMessage(convKey, message) {
+			if (!this.isActive(convKey)) {
+				return;
+			}
 			const conv = this.conversationMap.get(convKey);
 			// 向下取20条,向上取5条
 			const maxSeqNo = Math.min(conv.maxSeqNo, message.seqNo + 20);

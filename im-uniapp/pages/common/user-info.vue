@@ -5,7 +5,6 @@
 			<view class="content">
 				<head-image :name="userInfo.nickName" :url="userInfo.headImageThumb" :size="160"
 					@click="onShowFullImage()"></head-image>
-
 				<view class="info-item">
 					<view class="info-primary">
 						<text class="info-username">{{ userInfo.nickName }}</text>
@@ -37,8 +36,8 @@
 			<btn-bar v-show="!isFriend" type="primary" title="加为好友" @tap="onAddFriend()"></btn-bar>
 			<btn-bar v-show="isFriend" type="danger" title="删除好友" @tap="onDelFriend()"></btn-bar>
 		</bar-group>
+		<popup-modal ref="modal"></popup-modal>
 	</view>
-	<popup-modal ref="modal"></popup-modal>
 </template>
 
 <script>
@@ -64,9 +63,7 @@ export default {
 				targetId: this.userInfo.id,
 				showName: this.userInfo.nickName,
 				headImage: this.userInfo.headImageThumb,
-				companyName: this.userInfo.companyName,
-				isDnd: this.friendInfo.isDnd,
-				isTop: this.friendInfo.isTop
+				isDnd: this.friendInfo.isDnd
 			};
 			await this.chatStore.openChat(chatInfo);
 			await this.chatStore.moveTop(this.convKey)

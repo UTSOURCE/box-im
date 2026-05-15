@@ -242,6 +242,9 @@ export default defineStore('chatStore', {
 		},
 		// 拉取上一页消息
 		async loadLastPageMessage(convKey, size) {
+			if (!this.isActive(convKey)) {
+				return;
+			}
 			// 防止滚动事件重复触发导致重复拉取
 			if (this.loadingMessage || !this.hasMoreLastMessage) {
 				return;
@@ -287,6 +290,9 @@ export default defineStore('chatStore', {
 		},
 		// 拉取下一页消息
 		async loadNextPageMessage(convKey, size) {
+			if (!this.isActive(convKey)) {
+				return;
+			}
 			// 防止滚动事件重复触发导致重复拉取
 			if (this.loadingMessage || !this.hasMoreNextMessage) {
 				return;
@@ -312,6 +318,9 @@ export default defineStore('chatStore', {
 		},
 		// 定位消息
 		async locateToMessage(convKey, message) {
+			if (!this.isActive(convKey)) {
+				return;
+			}
 			const conv = this.conversationMap.get(convKey);
 			// 向下取20条,向上取3条
 			const maxSeqNo = Math.min(conv.maxSeqNo, message.seqNo + 20);

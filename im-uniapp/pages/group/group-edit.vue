@@ -111,7 +111,7 @@ export default {
 			}).then((group) => {
 				this.group = group;
 				// 更新聊天页面的群聊信息
-				this.chatStore.updateChatFromGroup(group);
+				this.chatStore.updateFromGroup(group);
 				// 更新聊天列表的群聊信息
 				this.groupStore.updateGroup(group);
 

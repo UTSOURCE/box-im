@@ -499,6 +499,7 @@ export default {
 				return;
 			}
 			await this.locateMessage(atMessage);
+			await this.chatStore.resetAtMessage(this.conversation.key);
 		},
 		async readedMessage() {
 			if (this.conversation.unreadCount > 0) {

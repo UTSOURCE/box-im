@@ -603,7 +603,8 @@ export default {
 			setTimeout(() => this.scrollToBottom(), 100);
 		},
 		async onScrollToTop(e) {
-			if (this.lockScrollEvent) {
+			// app端：当用户从一个聊天页面跳转到另一个聊天页面时，会触发旧页面的顶部事件，原因不详
+			if (this.lockScrollEvent || !this.chatStore.isActive(this.conversation.key)) {
 				return;
 			}
 			if (!this.chatStore.hasMoreLastMessage) {
@@ -621,7 +622,7 @@ export default {
 			this.setLockScrollEvent(500);
 		},
 		async onScrollToBottom(e) {
-			if (this.lockScrollEvent) {
+			if (this.lockScrollEvent || !this.chatStore.isActive(this.conversation.key)) {
 				return;
 			}
 			if (this.chatStore.hasMoreNextMessage) {
@@ -680,6 +681,7 @@ export default {
 				return;
 			}
 			await this.locateMessage(atMessage.localId);
+			await this.chatStore.resetAtMessage(this.conversation.key);
 		},
 		async readedMessage() {
 			if (this.conversation.unreadCount > 0) {
@@ -1045,6 +1047,8 @@ export default {
 			// 消息拉到底部
 			await this.chatStore.resetMessages(this.conversation.key)
 			this.scrollToBottom();
+			// 有时页面渲染得慢，会导致无法正常滚到底部，这里再滚一次
+			setTimeout(() => this.scrollToBottom(), 100);
 			// #ifdef H5
 			this.initHeight = window.innerHeight;
 			// 兼容ios的h5:禁止页面滚动

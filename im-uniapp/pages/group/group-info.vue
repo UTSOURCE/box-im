@@ -55,7 +55,7 @@
 		<bar-group v-if="!group.quit">
 			<switch-bar title="消息免打扰" :checked="group.isDnd" @change="onDndChange"></switch-bar>
 		</bar-group>
-		<bar-group v-if="!group.quit && chatIdx>=0">
+		<bar-group v-if="!group.quit && isExistHistory ">
 			<arrow-bar title="清空聊天记录" @tap="onCleanMessage()"></arrow-bar>
 		</bar-group>
 		<bar-group v-if="!group.quit">
@@ -65,6 +65,7 @@
 		</bar-group>
 		<group-member-selector ref="removeSelector" :members="groupMembers" :group="group"
 			@complete="onRemoveComplete"></group-member-selector>
+		<popup-modal ref="modal"></popup-modal>
 	</view>
 </template>
 
@@ -73,12 +74,10 @@ export default {
 	data() {
 		return {
 			groupId: null,
-			group: {},
-			groupMembers: []
+			group: {}
 		}
 	},
 	methods: {
-		onFocusSearch() {},
 		onInviteMember() {
 			uni.navigateTo({
 				url: `/pages/group/group-invite?id=${this.groupId}`
@@ -86,12 +85,12 @@ export default {
 		},
 		onRemoveMember() {
 			// 群主不显示
-			let hideIds = [this.group.ownerId];
+			const hideIds = [this.group.ownerId];
 			this.$refs.removeSelector.init([], [], hideIds);
 			this.$refs.removeSelector.open();
 		},
 		onRemoveComplete(userIds) {
-			let data = {
+			const data = {
 				groupId: this.group.id,
 				userIds: userIds
 			}
@@ -117,103 +116,97 @@ export default {
 				url: `/pages/group/group-edit?id=${this.groupId}`
 			})
 		},
-		onSendMessage() {
-			let chat = {
-				type: 'GROUP',
-				targetId: this.group.id,
+		async onSendMessage() {
+			const chatInfo = {
+				convKey: this.convKey,
+				type: this.$enums.CONVERSATION_TYPE.GROUP,
+				targetId: this.groupId,
 				showName: this.group.showGroupName,
 				headImage: this.group.headImageThumb,
 				isDnd: this.group.isDnd
 			};
-			this.chatStore.openChat(chat);
-			let chatIdx = this.chatStore.findChatIdx(chat);
+			await this.chatStore.openChat(chatInfo);
+			await this.chatStore.moveTop(this.convKey)
 			uni.navigateTo({
-				url: "/pages/chat/chat-box?chatIdx=" + chatIdx
+				url: "/pages/chat/chat-box?convKey=" + this.convKey
 			})
 		},
 		onQuitGroup() {
-			uni.showModal({
+			const convKey = this.convKey;
+			const groupId = this.groupId;
+			const groupName = this.group.name;
+			this.$refs.modal.open({
 				title: '确认退出?',
 				content: `退出群聊后将不再接受群里的消息，确认退出吗?`,
-				success: (res) => {
-					if (res.cancel)
-						return;
+				success: () => {
 					this.$http({
-						url: `/group/quit/${this.groupId}`,
+						url: `/group/quit/${groupId}`,
 						method: 'DELETE'
 					}).then(() => {
 						uni.showToast({
-							title: `您退出了群聊'${this.group.name}'`,
+							title: `您退出了群聊'${groupName}'`,
 							icon: "none"
 						})
 						setTimeout(() => {
-							uni.switchTab({
-								url: "/pages/group/group"
-							});
-							this.groupStore.removeGroup(this.groupId);
-							this.chatStore.removeGroupChat(this
-								.groupId);
+							uni.switchTab({ url: "/pages/group/group" });
+							this.groupStore.removeGroup(groupId);
+							this.chatStore.remove(convKey);
 						}, 1500)
 					});
 				}
 			});
 		},
 		onDissolveGroup() {
-			uni.showModal({
+			const convKey = this.convKey;
+			const groupId = this.groupId;
+			const groupName = this.group.name;
+			this.$refs.modal.open({
 				title: '确认解散?',
-				content: `确认要解散群聊'${this.group.name}'吗?`,
+				content: `确认要解散群聊'${groupName}'吗?`,
 				success: (res) => {
 					if (res.cancel)
 						return;
 					this.$http({
-						url: `/group/delete/${this.groupId}`,
+						url: `/group/delete/${groupId}`,
 						method: 'delete'
 					}).then(() => {
 						uni.showToast({
-							title: `您解散了群聊'${this.group.name}'`,
+							title: `您解散了群聊'${groupName}'`,
 							icon: "none"
 						})
 						setTimeout(() => {
-							uni.switchTab({
-								url: "/pages/group/group"
-							});
-							this.groupStore.removeGroup(this.groupId);
-							this.chatStore.removeGroupChat(this
-								.groupId);
+							uni.switchTab({ url: "/pages/group/group" });
+							this.groupStore.removeGroup(groupId);
+							this.chatStore.remove(convKey);
 						}, 1500)
 					});
 				}
 			});
 		},
 		onDndChange(e) {
-			let isDnd = e.detail.value;
-			let groupId = this.group.id;
-			let formData = {
+			const isDnd = e.detail.value;
+			const convKey = this.convKey;
+			const groupId = this.group.id;
+			const formData = {
 				groupId: groupId,
 				isDnd: isDnd
 			}
 			this.$http({
 				url: '/group/dnd',
-				method: 'PUT',
+				method: 'put',
 				data: formData
 			}).then(() => {
 				this.groupStore.setDnd(groupId, isDnd);
-				let chat = this.chatStore.findChatByGroup(groupId);
-				if (chat) {
-					this.chatStore.setDnd(chat, isDnd)
-				}
+				this.chatStore.setDnd(convKey, isDnd)
 			})
 		},
 		onCleanMessage() {
-			uni.showModal({
+			this.$refs.modal.open({
 				title: '清空聊天记录',
 				content: `确认删除群聊'${this.group.name}'的聊天记录吗?`,
 				confirmText: '确认',
-				success: (res) => {
-					if (res.cancel) {
-						return;
-					}
-					this.chatStore.cleanMessage(this.chatIdx);
+				success: () => {
+					this.chatStore.cleanMessage(this.convKey);
 					uni.showToast({
 						title: `您清空了'${this.group.name}'的聊天记录`,
 						icon: 'none'
@@ -224,28 +217,31 @@ export default {
 		loadGroupInfo() {
 			this.$http({
 				url: `/group/find/${this.groupId}`,
-				method: 'GET'
+				method: 'get'
 			}).then((group) => {
 				this.group = group;
 				// 更新聊天页面的群聊信息
-				this.chatStore.updateChatFromGroup(group);
+				this.chatStore.updateFromGroup(group);
 				// 更新聊天列表的群聊信息
 				this.groupStore.updateGroup(group);
-
+			}).catch((e) => {
+				console.log(e)
+				uni.navigateBack();
 			});
 		},
 		loadGroupMembers() {
-			this.$http({
-				url: `/group/members/${this.groupId}`,
-				method: "GET"
-			}).then((members) => {
-				this.groupMembers = members.filter(m => !m.quit);
-			})
+			this.groupStore.refreshMember(this.groupId);
 		}
 	},
 	computed: {
+		convKey() {
+			return this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, this.groupId);
+		},
+		isExistHistory() {
+			return this.chatStore.conversationMap.has(this.convKey);
+		},
 		ownerName() {
-			let member = this.groupMembers.find((m) => m.userId == this.group.ownerId);
+			const member = this.groupMembers.find((m) => m.userId == this.group.ownerId);
 			return member && member.showNickName;
 		},
 		isOwner() {
@@ -254,23 +250,20 @@ export default {
 		showMaxIdx() {
 			return this.isOwner ? 8 : 9;
 		},
-		chatIdx() {
-			let chat = this.chatStore.findChatByGroup(this.groupId);
-			if (chat) {
-				return this.chatStore.findChatIdx(chat);
-			}
-			return -1;
+		groupMembers() {
+			const group = this.groupStore.findGroup(this.groupId)
+			return group.members;
 		}
 	},
 	onLoad(options) {
-		this.groupId = options.id;
+		this.groupId = parseInt(options.id);
 		// 查询群聊信息
 		this.loadGroupInfo(options.id);
 		// 查询群聊成员
 		this.loadGroupMembers(options.id)
 	}
-
 }
+
 </script>
 
 <style lang="scss">
@@ -374,4 +367,5 @@ export default {
 		}
 	}
 }
+
 </style>
