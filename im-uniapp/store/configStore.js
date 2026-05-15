@@ -4,7 +4,6 @@ import http from '../common/request'
 export default defineStore('configStore', {
 	state: () => {
 		return {
-			appInit: false,
 			webrtc: {}
 		}
 	},
@@ -12,25 +11,14 @@ export default defineStore('configStore', {
 		setConfig(config) {
 			this.webrtc = config.webrtc;
 		},
-		setAppInit(appInit) {
-			this.appInit = appInit;
-		},
 		clear() {
 			this.webrtc = {};
 		},
-		loadConfig() {
-			return new Promise((resolve, reject) => {
-				http({
-					url: '/system/config',
-					method: 'GET'
-				}).then((config) => {
-					console.log("系统配置", config)
-					this.setConfig(config);
-					resolve();
-				}).catch((res) => {
-					reject(res);
-				});
-			})
+		async loadConfig() {
+			const config = await	http({url: '/system/config'});
+			this.setConfig(config);
+			console.log("系统配置", config)
+				
 		}
 	}
 })

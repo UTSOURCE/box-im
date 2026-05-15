@@ -1,568 +1,758 @@
+import { toRaw, nextTick } from 'vue';
 import { defineStore } from 'pinia';
-import { MESSAGE_TYPE, MESSAGE_STATUS } from '@/common/enums.js';
+import { MESSAGE_TYPE, MESSAGE_STATUS, CONVERSATION_TYPE } from "@/common/enums.js"
+import * as messageUtil from '@/common/messageUtil.js';
+import { getDB } from '@/db/index.js';
+import nextSnowflakeId from '@/common/snowflake.js';
+import http from '@/common/request.js'
+import useUserStore from './userStore.js';
 import useFriendStore from './friendStore.js';
 import useGroupStore from './groupStore.js';
-import useUserStore from './userStore';
 
-let cacheChats = [];
+
 export default defineStore('chatStore', {
 	state: () => {
 		return {
-			chats: [],
-			privateMsgMaxId: 0,
-			groupMsgMaxId: 0,
-			loading: false
+			activeConversation: null, // 当前选中的会话
+			conversations: [], // 全部会话列表
+			conversationMap: new Map(), // 全部会话map
+			loading: true, // 是否正在加载离线消息
+			loadingMessage: false, // 是否正在从本地数据库拉取消息
+			messages: [], // 当前会话展示的消息列表
+			hasMoreLastMessage: true, // 当前会话是否还有更多上翻消息
+			hasMoreNextMessage: true, // 当前会话是否还有更多下翻消息,
+			isInBottom: true, // 滚动条是否在消息底部
+			newMessageSize: 0, // 新消息数量,
+			editorDraftMap: new Map(),
+			scrollMessageLocalId: '', // 滚动条位置
+			minSeqNo: 0, // 最小消息序号
+			maxSeqNo: 0 // 最大消息序号
 		}
 	},
 	actions: {
-		initChats(chatsData) {
-			cacheChats = [];
-			this.chats = [];
-			for (let chat of chatsData.chats) {
-				chat.stored = false;
-				// 暂存至缓冲区
-				cacheChats.push(JSON.parse(JSON.stringify(chat)));
-				// 加载期间显示只前15个会话做做样子,一切都为了加快初始化时间
-				if (this.chats.length < 15) {
-					this.chats.push(chat);
+		init(conversations) {
+			conversations.forEach(conv => {
+				conv.draftText = ''
+				// 兼容历史数据缺失的字段
+				if (!conv.minSeqNo) {
+					conv.minSeqNo = 0;
 				}
-			}
-			this.privateMsgMaxId = chatsData.privateMsgMaxId || 0;
-			this.groupMsgMaxId = chatsData.groupMsgMaxId || 0;
+			});
+			this.conversations = conversations;
+			this.conversationMap.clear();
+			this.conversations.forEach(conv => this.conversationMap.set(conv.key, conv));
+			this.refreshTopAndDnd();
+			this.startSortTimer();
 		},
-		openChat(chatInfo) {
-			let chats = this.curChats;
-			let chat = null;
-			for (let idx in chats) {
-				if (chats[idx].type == chatInfo.type &&
-					chats[idx].targetId === chatInfo.targetId) {
-					chat = chats[idx];
-					// 放置头部
-					this.moveTop(idx)
-					break;
+		append(conversations) {
+			conversations.forEach(conv => {
+				conv.draftText = ''
+				if (this.conversationMap.has(conv.key)) {
+					// 更新
+					let conversation = this.conversationMap.get(conv.key);
+					Object.assign(conversation, conv);
+				} else {
+					// 新增
+					this.conversations.push(conv);
+					this.conversationMap.set(conv.key, conv);
 				}
+				// 当前会话拉到了新消息
+				if (this.isActive(conv.key)) {
+					this.hasMoreNextMessage = true;
+				}
+			})
+			this.refreshTopAndDnd();
+		},
+		setActive(convKey) {
+			const conv = this.conversationMap.get(convKey);
+			if (!this.activeConversation || convKey != this.activeConversation.key) {
+				this.activeConversation = conv;
+				this.messages = [];
+				this.hasMoreNextMessage = true;
+				this.hasMoreLastMessage = true;
+				this.loadingMessage = false;
+				this.minSeqNo = 0;
+				this.maxSeqNo = 0;
+				this.scrollMessageLocalId = '';
 			}
+		},
+		setIsInBottom(isInBottom) {
+			this.isInBottom = isInBottom;
+			// 既然在底部，新消息已经显示了
+			if (isInBottom) {
+				this.newMessageSize = 0;
+			}
+		},
+		async openChat(chatInfo) {
+			const key = getDB().buildConversationKey(chatInfo.type, chatInfo.targetId)
+			let conv = this.conversationMap.get(key);
 			// 创建会话
-			if (chat == null) {
-				chat = {
-					targetId: chatInfo.targetId,
-					type: chatInfo.type,
-					showName: chatInfo.showName,
-					headImage: chatInfo.headImage,
-					isDnd: chatInfo.isDnd,
-					lastContent: "",
-					lastSendTime: new Date().getTime(),
-					unreadCount: 0,
-					hotMinIdx: 0,
-					readedMessageIdx: 0,
-					messages: [],
-					atMe: false,
-					atAll: false,
-					stored: false
+			if (conv == null) {
+				conv = {
+					key: key, // 会话唯一key
+					targetId: chatInfo.targetId, // 会话对象id
+					type: chatInfo.type, // 会话类型 私聊|群聊|系统消息
+					showName: chatInfo.showName, // 昵称
+					headImage: chatInfo.headImage, // 头像
+					companyName: chatInfo.companyName, // 企业标志
+					isDnd: chatInfo.isDnd, // 会话是否开启免打扰
+					isTop: chatInfo.isTop, // 会话是否置顶
+					lastContent: "", // 会话最后一条消息的内容
+					lastSendTime: new Date().getTime(), // 会话最后一条消息的发送时间
+					optTime: new Date().getTime(), // 会话最后一次操作时间
+					unreadCount: 0, // 会话未读消息数量
+					atMe: false, // 会话是否有@我的消息
+					atAll: false, // 会话是否有@所有人的消息
+					lastAtMessageId: -1, // 最后一条@我的消息id
+					lastTimeTip: 0, // 最后插入的时间提示
+					maxMessageId: 0, // 会话最大消息id
+					minSeqNo: 0, // 最小消息序号
+					maxSeqNo: 0, // 最大消息序号
+					maxReadedId: 0 // 已读最大消息id
 				};
-				chats.unshift(chat);
-				this.saveToStorage();
+				this.conversations.push(conv);
+				this.conversationMap.set(key, conv);
+				await getDB().saveConversation(toRaw(conv));
 			}
 		},
-		activeChat(idx) {
-			let chats = this.curChats;
-			if (idx >= 0) {
-				chats[idx].unreadCount = 0;
+		async insertMessage(convKey, m) {
+			const conv = this.conversationMap.get(convKey);
+			conv.lastContent = messageUtil.previewContent(m);
+			conv.lastSendTime = m.sendTime;
+			conv.optTime = m.sendTime;
+			// 其他成员发的消息显示发送昵称
+			conv.sendNickName = m.selfSend ? '' : m.sendNickName;
+			// 记录会话最大消息id
+			if (m.id && m.seqNo) {
+				conv.maxMessageId = Math.max(conv.maxMessageId, m.id)
+				conv.maxSeqNo = Math.max(conv.maxSeqNo, m.seqNo)
+				await getDB().saveConversation(toRaw(conv));
 			}
-		},
-		resetUnreadCount(chatInfo) {
-			let chats = this.curChats;
-			for (let idx in chats) {
-				if (chats[idx].type == chatInfo.type &&
-					chats[idx].targetId == chatInfo.targetId) {
-					chats[idx].unreadCount = 0;
-					chats[idx].atMe = false;
-					chats[idx].atAll = false;
-					chats[idx].stored = false;
-					this.saveToStorage();
-				}
-			}
-
-		},
-		readedMessage(pos) {
-			let chat = this.findChatByFriend(pos.friendId);
-			// 已读回执没有做可靠性投递，通过回溯100条的方式去修正
-			let idx = Math.max(0, chat.readedMessageIdx - 100);
-			for (; idx < chat.messages.length; idx++) {
-				let m = chat.messages[idx];
-				if (m.id && m.selfSend && m.status < MESSAGE_STATUS.RECALL) {
-					// pos.maxId为空表示整个会话已读
-					if (!pos.maxId || m.id <= pos.maxId) {
-						m.status = MESSAGE_STATUS.READED
-						chat.readedMessageIdx = idx;
-						chat.stored = false;
-					}
-				}
-			}
-			if (!chat.stored) {
-				this.saveToStorage();
-			}
-		},
-		cleanMessage(idx) {
-			let chat = this.curChats[idx];
-			chat.lastContent = '';
-			chat.hotMinIdx = 0;
-			chat.unreadCount = 0;
-			chat.atMe = false;
-			chat.atAll = false;
-			chat.stored = false
-			chat.messages = [];
-			this.saveToStorage(true);
-		},
-		removeChat(idx) {
-			let chats = this.curChats;
-			chats[idx].delete = true;
-			chats[idx].stored = false;
-			this.saveToStorage();
-		},
-		removePrivateChat(userId) {
-			let chats = this.curChats;
-			for (let idx in chats) {
-				if (chats[idx].type == 'PRIVATE' &&
-					chats[idx].targetId == userId) {
-					this.removeChat(idx);
-				}
-			}
-		},
-		removeGroupChat(groupId) {
-			let chats = this.curChats;
-			for (let idx in chats) {
-				if (chats[idx].type == 'GROUP' &&
-					chats[idx].targetId == groupId) {
-					this.removeChat(idx);
-				}
-			}
-		},
-		moveTop(idx) {
-			if (this.loading) {
-				return;
-			}
-			let chats = this.curChats;
-			if (idx > 0) {
-				let chat = chats[idx];
-				chats.splice(idx, 1);
-				chats.unshift(chat);
-				chat.lastSendTime = new Date().getTime();
-				chat.stored = false;
-				this.saveToStorage();
-			}
-		},
-		insertMessage(msgInfo, chatInfo) {
-			// 获取对方id或群id
-			let type = chatInfo.type;
-			// 记录消息的最大id
-			if (msgInfo.id && type == "PRIVATE" && msgInfo.id > this.privateMsgMaxId) {
-				this.privateMsgMaxId = msgInfo.id;
-			}
-			if (msgInfo.id && type == "GROUP" && msgInfo.id > this.groupMsgMaxId) {
-				this.groupMsgMaxId = msgInfo.id;
-			}
-			// 如果是已存在消息，则覆盖旧的消息数据
-			let chat = this.findChat(chatInfo);
-			let message = this.findMessage(chat, msgInfo);
-			if (message) {
-				console.log("message:", message)
-				Object.assign(message, msgInfo);
-				chat.stored = false;
-				this.saveToStorage();
-				return;
-			}
-			// 会话列表内容
-			if (msgInfo.type == MESSAGE_TYPE.IMAGE) {
-				chat.lastContent = "[图片]";
-			} else if (msgInfo.type == MESSAGE_TYPE.FILE) {
-				chat.lastContent = "[文件]";
-			} else if (msgInfo.type == MESSAGE_TYPE.AUDIO) {
-				chat.lastContent = "[语音]";
-			} else if (msgInfo.type == MESSAGE_TYPE.ACT_RT_VOICE) {
-				chat.lastContent = "[语音通话]";
-			} else if (msgInfo.type == MESSAGE_TYPE.ACT_RT_VIDEO) {
-				chat.lastContent = "[视频通话]";
-			} else if (msgInfo.type == MESSAGE_TYPE.TEXT ||
-				msgInfo.type == MESSAGE_TYPE.RECALL ||
-				msgInfo.type == MESSAGE_TYPE.TIP_TEXT) {
-				chat.lastContent = msgInfo.content;
-			}
-			chat.lastSendTime = msgInfo.sendTime;
-			chat.sendNickName = msgInfo.sendNickName;
-			// 未读加1
-			if (!msgInfo.selfSend && msgInfo.status != MESSAGE_STATUS.READED &&
-				msgInfo.status != MESSAGE_STATUS.RECALL && msgInfo.type != MESSAGE_TYPE.TIP_TEXT) {
-				chat.unreadCount++;
+			// 会话未读加1
+			if (!m.selfSend && m.status != MESSAGE_STATUS.READED &&
+				m.status != MESSAGE_STATUS.RECALL && m.type != MESSAGE_TYPE.TIP_TEXT) {
+				conv.unreadCount++;
 			}
 			// 是否有人@我
-			if (!msgInfo.selfSend && chat.type == "GROUP" && msgInfo.atUserIds &&
-				msgInfo.status != MESSAGE_STATUS.READED) {
-				const userStore = useUserStore();
-				let userId = userStore.userInfo.id;
-				if (msgInfo.atUserIds.indexOf(userId) >= 0) {
-					chat.atMe = true;
+			if (!m.selfSend && m.atUserIds && m.status != MESSAGE_STATUS.READED) {
+				const userId = useUserStore().userInfo.id;
+				if (m.atUserIds.indexOf(userId) >= 0) {
+					conv.atMe = true;
+					conv.lastAtMessageId = m.id;
 				}
-				if (msgInfo.atUserIds.indexOf(-1) >= 0) {
-					chat.atAll = true;
+				if (m.atUserIds.indexOf(-1) >= 0) {
+					conv.atAll = true;
+					conv.lastAtMessageId = m.id;
 				}
 			}
 			// 间隔大于10分钟插入时间显示
-			if (!chat.lastTimeTip || (chat.lastTimeTip < msgInfo.sendTime - 600 * 1000)) {
-				chat.messages.push({
-					sendTime: msgInfo.sendTime,
-					type: MESSAGE_TYPE.TIP_TIME,
-				});
-				chat.lastTimeTip = msgInfo.sendTime;
-			}
-			// 插入消息
-			chat.messages.push(msgInfo);
-			chat.stored = false;
-			this.saveToStorage();
-		},
-		updateMessage(msgInfo, chatInfo) {
-			// 获取对方id或群id
-			let chat = this.findChat(chatInfo);
-			let message = this.findMessage(chat, msgInfo);
-			if (message) {
-				// 属性拷贝
-				Object.assign(message, msgInfo);
-				chat.stored = false;
-				this.saveToStorage();
-			}
-		},
-		deleteMessage(msgInfo, chatInfo) {
-			let isColdMessage = false;
-			let chat = this.findChat(chatInfo);
-			let delIdx = -1;
-			for (let idx in chat.messages) {
-				// 已经发送成功的，根据id删除
-				if (chat.messages[idx].id && chat.messages[idx].id == msgInfo.id) {
-					delIdx = idx;
-					break;
-				}
-				// 正在发送中的消息可能没有id，只有临时id
-				if (chat.messages[idx].tmpId && chat.messages[idx].tmpId == msgInfo.tmpId) {
-					delIdx = idx;
-					break;
+			if (!conv.lastTimeTip || (conv.lastTimeTip < m.sendTime - 600 * 1000)) {
+				conv.lastTimeTip = m.sendTime;
+				if (this.isActive(convKey)) {
+					const timeTipMessage = {
+						convKey: conv.key,
+						localId: nextSnowflakeId(),
+						sendTime: m.sendTime,
+						type: MESSAGE_TYPE.TIP_TIME,
+					};
+					this.messages.push(timeTipMessage);
 				}
 			}
-			if (delIdx >= 0) {
-				chat.messages.splice(delIdx, 1);
-				if (delIdx < chat.hotMinIdx) {
-					isColdMessage = true;
-					chat.hotMinIdx--;
-				}
-				if (delIdx < chat.readedMessageIdx) {
-					chat.readedMessageIdx--;
-				}
-				chat.stored = false;
-				this.saveToStorage(isColdMessage);
-			}
-		},
-		recallMessage(msgInfo, chatInfo) {
-			let chat = this.findChat(chatInfo);
-			if (!chat) return;
-			let isColdMessage = false;
-			// 要撤回的消息id
-			let id = msgInfo.content;
-			let name = msgInfo.selfSend ? '你' : chat.type == 'PRIVATE' ? '对方' : msgInfo.sendNickName;
-			for (let idx in chat.messages) {
-				let m = chat.messages[idx];
-				if (m.id && m.id == id) {
-					// 改造成一条提示消息
-					m.status = MESSAGE_STATUS.RECALL;
-					m.content = name + "撤回了一条消息";
-					m.type = MESSAGE_TYPE.TIP_TEXT
-					// 会话列表
-					chat.lastContent = m.content;
-					chat.lastSendTime = msgInfo.sendTime;
-					chat.sendNickName = '';
-					if (!msgInfo.selfSend && msgInfo.status != MESSAGE_STATUS.READED) {
-						chat.unreadCount++;
+			// 标记所属会话
+			m.convKey = conv.key;
+			// 如果是当前打开的会话窗口
+			if (this.isActive(convKey)) {
+				if (!this.hasMoreNextMessage) {
+					// 消息插入底部
+					this.messages.push(m);
+					this.maxSeqNo = conv.maxSeqNo;
+					// 积压数量过大时，主动释放掉一部分消息，避免消息堆积占影响渲染效率
+					if (this.isInBottom && this.messages.length > 100) {
+						await this.resetMessages(convKey)
 					}
-					isColdMessage = idx < chat.hotMinIdx;
 				}
-				// 被引用的消息也要撤回
-				if (m.quoteMessage && m.quoteMessage.id == msgInfo.id) {
-					m.quoteMessage.content = "引用内容已撤回";
-					m.quoteMessage.status = MESSAGE_STATUS.RECALL;
-					m.quoteMessage.type = MESSAGE_TYPE.TIP_TEXT
+				if (!this.isInBottom) {
+					// 滚动条不在底部，需要展示新消息数量
+					this.newMessageSize++;
 				}
 			}
-			chat.stored = false;
-			this.saveToStorage(isColdMessage);
+			await getDB().saveConversationAndMessage([toRaw(conv)], [toRaw(m)])
 		},
-		updateChatFromFriend(friend) {
-			let chat = this.findChatByFriend(friend.id)
-			if (chat && (chat.headImage != friend.headImage ||
-					chat.showName != friend.nickName)) {
-				// 更新会话中的群名和头像
-				chat.headImage = friend.headImage;
-				chat.showName = friend.nickName;
-				chat.stored = false;
-				this.saveToStorage();
+		async updateMessage(convKey, m) {
+			const conv = this.conversationMap.get(convKey);
+			// 查询原消息
+			let message = this.messages.find(m1 => m.localId == m1.localId);
+			if (!message) {
+				message = await getDB().findMessageByLocalId(m.localId);
+				if (!message) {
+					return;
+				}
+			}
+			// 通过属性拷贝的方式对字段更新
+			Object.assign(message, m);
+			await getDB().saveMessage(toRaw(message));
+			// 记录会话最大消息id
+			if (m.id && m.seqNo) {
+				conv.maxMessageId = Math.max(conv.maxMessageId, m.id)
+				conv.maxSeqNo = Math.max(conv.maxSeqNo, m.seqNo)
+				await getDB().saveConversation(toRaw(conv));
 			}
 		},
-		updateChatFromUser(user) {
-			let chat = this.findChatByFriend(user.id);
+		async deleteMessage(convKey, m) {
+			// 删除旧消息
+			await getDB().deleteMessageByLocalId(m.localId);
+			if (this.isActive(convKey)) {
+				for (let idx in this.messages) {
+					// 已经发送成功的，根据id删除
+					if (this.messages[idx].localId == m.localId) {
+						this.messages.splice(idx, 1);
+						break;
+					}
+				}
+			}
+			// 清空lastContent
+			const conv = this.conversationMap.get(convKey)
+			if (m.id && m.id == conv.maxMessageId) {
+				conv.lastContent = '';
+				conv.sendNickName = '';
+				await getDB().saveConversation(toRaw(conv))
+			}
+		},
+		// 重置消息到底部30条
+		async resetMessages(convKey) {
+			this.setIsInBottom(true);
+			const conv = this.conversationMap.get(convKey);
+			this.minSeqNo = 0;
+			this.maxSeqNo = conv.maxSeqNo;
+			this.hasMoreLastMessage = true;
+			const size = 30;
+			if (this.isActive(convKey) && !this.hasMoreNextMessage && this.messages.length) {
+				// 消息已在内存里，就不去db查询了，降低并发压力
+				const minSeqNo = Math.max(1, conv.minSeqNo, conv.maxSeqNo - size + 1);
+				const idx = this.messages.findIndex(m => m.seqNo == minSeqNo);
+				if (idx >= 0) {
+					this.messages.splice(0, idx);
+					this.minSeqNo = minSeqNo;
+					return;
+				}
+			}
+			// 多加1是为了查询时修正边界值
+			this.minSeqNo = conv.maxSeqNo + 1;
+			this.hasMoreNextMessage = false;
+			this.messages = [];
+			await this.loadLastPageMessage(convKey, size);
+		},
+		// 拉取上一页消息
+		async loadLastPageMessage(convKey, size) {
+			// 防止滚动事件重复触发导致重复拉取
+			if (this.loadingMessage || !this.hasMoreLastMessage) {
+				return;
+			}
+			const conv = this.conversationMap.get(convKey);
+			const minSeqNo = Math.max(1, conv.minSeqNo, this.minSeqNo - size);
+			const maxSeqNo = this.minSeqNo - 1;
+			if (maxSeqNo < minSeqNo) {
+				return;
+			}
+			let messages = await getDB().findPageMessage(convKey, minSeqNo, maxSeqNo);
+			messages = await this.reloadSendingMessage(convKey, messages);
+			messages = await this.reloadMissMessage(convKey, minSeqNo, maxSeqNo, messages);
+			this.refreshAtMessage(convKey, messages);
+			this.hasMoreLastMessage = minSeqNo > 1 && messages.length > 0;
+			messages = this.filterInvalidMessage(convKey, messages);
+			messages = this.appendTimeTipMessage(convKey, messages);
+			const scrollLocalId = this.messages.length ? this.messages[0].localId : "";
+			this.messages.unshift(...messages);
+			this.minSeqNo = minSeqNo;
+			this.loadingMessage = false;
+			// 如果上方已无可拉取的消息，标记最小消息序号，避免下次重复拉取
+			if (!this.hasMoreLastMessage) {
+				await this.refreshMinSeqNo(convKey);
+			}
+			// 防止用户删除了过多消息导致滚动条不出来
+			if (this.messages.length < 20) {
+				await this.loadLastPageMessage(convKey, 20);
+				return;
+			}
+			if (scrollLocalId) {
+				// 恢复滚动条的位置,防止滚动条定格在顶部，不能一直往上滚
+				if (uni.getSystemInfoSync().platform == 'ios') {
+					// ios需要一点延时，否则没有效果
+					nextTick(() => this.scrollToMessage(scrollLocalId))
+				} else {
+					//  #ifndef H5
+					// 安卓不加延时，否则页面会闪烁
+					this.scrollToMessage(scrollLocalId);
+					// #endif
+				}
+			}
+		},
+		// 拉取下一页消息
+		async loadNextPageMessage(convKey, size) {
+			// 防止滚动事件重复触发导致重复拉取
+			if (this.loadingMessage || !this.hasMoreNextMessage) {
+				return;
+			}
+			const conv = this.conversationMap.get(convKey);
+			const minSeqNo = Math.min(conv.maxSeqNo, this.maxSeqNo + 1);
+			const maxSeqNo = Math.min(conv.maxSeqNo, this.maxSeqNo + size);
+			this.loadingMessage = true;
+			let messages = await getDB().findPageMessage(convKey, minSeqNo, maxSeqNo);
+			messages = await this.reloadSendingMessage(convKey, messages);
+			messages = await this.reloadMissMessage(convKey, minSeqNo, maxSeqNo, messages);
+			this.refreshAtMessage(convKey, messages);
+			this.hasMoreNextMessage = maxSeqNo < conv.maxSeqNo && messages.length > 0;
+			messages = this.filterInvalidMessage(convKey, messages);
+			messages = this.appendTimeTipMessage(convKey, messages);
+			this.messages.push(...messages);
+			this.maxSeqNo = maxSeqNo;
+			this.loadingMessage = false;
+			// 防止用户删除了过多消息导致滚动条不出来
+			if (this.messages.length < 20) {
+				await this.loadNextPageMessage(convKey, 20);
+			}
+		},
+		// 定位消息
+		async locateToMessage(convKey, message) {
+			const conv = this.conversationMap.get(convKey);
+			// 向下取20条,向上取3条
+			const maxSeqNo = Math.min(conv.maxSeqNo, message.seqNo + 20);
+			const minSeqNo = Math.max(1, conv.minSeqNo, maxSeqNo - 23);
+			this.loadingMessage = true;
+			let messages = await getDB().findPageMessage(convKey, minSeqNo, maxSeqNo);
+			messages = await this.reloadSendingMessage(convKey, messages);
+			messages = await this.reloadMissMessage(convKey, minSeqNo, maxSeqNo, messages);
+			this.refreshAtMessage(convKey, this.messages);
+			this.hasMoreLastMessage = minSeqNo > 1 && messages.length > 0;
+			this.hasMoreNextMessage = maxSeqNo < conv.maxSeqNo && messages.length > 0;
+			messages = this.filterInvalidMessage(convKey, messages);
+			messages = this.appendTimeTipMessage(convKey, messages);
+			this.maxSeqNo = maxSeqNo;
+			this.minSeqNo = minSeqNo;
+			this.messages = messages;
+			this.loadingMessage = false;
+			// 防止用户删除了过多消息导致滚动条不出来
+			if (this.messages.length < 20) {
+				await this.loadLastPageMessage(convKey, 10);
+				await this.loadNextPageMessage(convKey, 10);
+			}
+		},
+		// 拉取正在发送中的消息
+		async reloadSendingMessage(convKey, localMessages) {
+			const conv = this.conversationMap.get(convKey);
+			// 用户如果在消息发送过程中退出，消息会永远处于发送中状态，这里从服务器重新拉取这部分消息
+			const sendingMessages = localMessages.filter(m => m.status == MESSAGE_STATUS.SENDING);
+			if (!sendingMessages.length) {
+				return localMessages;
+			}
+			let messages = [];
+			const ids = sendingMessages.map(m => m.localId);
+			if (conv.type == CONVERSATION_TYPE.PRIVATE) {
+				messages = await http({
+					url: '/message/private/history',
+					method: 'post',
+					data: {
+						friendId: conv.targetId,
+						localIds: ids
+					}
+				});
+			} else {
+				messages = await http({
+					url: '/message/group/history',
+					method: 'post',
+					data: {
+						groupId: conv.targetId,
+						localIds: ids
+					}
+				});
+			}
+			const userId = useUserStore().userInfo.id;
+			messages.forEach(m => {
+				m.convKey = convKey;
+				m.selfSend = m.sendId == userId;
+				conv.maxMessageId = Math.max(conv.maxMessageId, m.id);
+				conv.maxSeqNo = Math.max(conv.maxSeqNo, m.seqNo);
+			});
+			const saveMessages = []
+			for (let idx in sendingMessages) {
+				const localMessage = sendingMessages[idx];
+				const message = messages.find(m => m.localId == localMessage.localId);
+				if (message) {
+					Object.assign(localMessage, message);
+				} else {
+					// 没拉取到这条消息，说明没发成功
+					localMessage.status = MESSAGE_STATUS.FAILED;
+				}
+				saveMessages.push(localMessage);
+			}
+			await getDB().saveConversationAndMessage([toRaw(conv)], saveMessages);
+			return localMessages;
+		},
+		// 从服务器拉取丢失的消息
+		async reloadMissMessage(convKey, minSeqNo, maxSeqNo, localMessages) {
+			const conv = this.conversationMap.get(convKey);
+			// 如果没有缺失的数据直接返回	
+			if (conv.maxSeqNo <= 0 || !this.existMissMessage(localMessages, minSeqNo, maxSeqNo)) {
+				return localMessages;
+			}
+			const userId = useUserStore().userInfo.id;
+			// 从服务器重新拉取这一页数据
+			let messages = [];
+			if (conv.type == CONVERSATION_TYPE.PRIVATE) {
+				messages = await http({
+					url: '/message/private/history',
+					method: 'post',
+					data: {
+						friendId: conv.targetId,
+						minSeqNo: minSeqNo,
+						maxSeqNo: maxSeqNo
+					}
+				});
+			} else {
+				messages = await http({
+					url: '/message/group/history',
+					method: 'post',
+					data: {
+						groupId: conv.targetId,
+						minSeqNo: minSeqNo,
+						maxSeqNo: maxSeqNo
+					}
+				});
+			}
+			const saveMessages = [];
+			messages.forEach(m => {
+				m.convKey = convKey;
+				m.selfSend = m.sendId == userId;
+				conv.maxMessageId = Math.max(conv.maxMessageId, m.id);
+				conv.maxSeqNo = Math.max(conv.maxSeqNo, m.seqNo);
+				// 只保存新拉到的消息,不能直接覆盖旧消息,否则被撤回的消息提示语会被覆盖
+				if (!localMessages.some(localMessage => localMessage.id == m.id)) {
+					saveMessages.push(m);
+				}
+			});
+			if (!saveMessages.length) {
+				return localMessages;
+			}
+			await getDB().saveConversationAndMessage([toRaw(conv)], messages);
+			// 合并消息
+			const messageMap = new Map();
+			localMessages.forEach(m => messageMap.set(m.localId, m));
+			messages.forEach(m => messageMap.set(m.localId, m));
+			return Array.from(messageMap.values()).sort((m1, m2) => {
+				if (m1.seqNo != m2.seqNo) {
+					return m1.seqNo - m2.seqNo;
+				}
+				return m1.sendTime - m2.sendTime;
+			});
+		},
+		filterInvalidMessage(convKey, localMessages) {
+			// 排除已经删除或撤回的消息
+			return localMessages.filter(m => !m.deleted && m.status != MESSAGE_STATUS.RECALL &&
+				m.type != MESSAGE_TYPE.RECALL);
+		},
+		appendTimeTipMessage(convKey, localMessages) {
+			const messages = [];
+			let lastTimeTip = 0;
+			localMessages.forEach(m => {
+				if (!m.deleted && m.sendTime - lastTimeTip > 600 * 1000) {
+					const timeTipMessage = {
+						localId: nextSnowflakeId(),
+						convKey: convKey,
+						sendTime: m.sendTime,
+						type: MESSAGE_TYPE.TIP_TIME,
+					};
+					messages.push(timeTipMessage);
+					lastTimeTip = m.sendTime;
+				}
+				messages.push(m);
+			})
+			return messages;
+		},
+		async recallMessage(convKey, message) {
+			const batchMessages = []
+			const conv = this.conversationMap.get(convKey);
+			// 要撤回的消息id
+			const recallMessageId = JSON.parse(message.content).id;
+			const recallMessageTip = JSON.parse(message.content).tip;
+			const recallMessage = await getDB().findMessageById(recallMessageId);
+			if (!recallMessage) {
+				return;
+			}
+			// 把原消息改造成一条提示消息
+			recallMessage.status = MESSAGE_STATUS.PENDING;
+			recallMessage.content = recallMessageTip;
+			recallMessage.type = MESSAGE_TYPE.TIP_TEXT
+			batchMessages.push(recallMessage);
+			// 会话列表
+			conv.lastContent = messageUtil.previewContent(recallMessage);
+			conv.lastSendTime = message.sendTime;
+			conv.sendNickName = '';
+			conv.maxMessageId = Math.max(conv.maxMessageId, message.id);
+			conv.maxSeqNo = Math.max(conv.maxSeqNo, message.seqNo);
+			if (!message.selfSend && message.status != MESSAGE_STATUS.READED) {
+				conv.unreadCount++;
+			}
+			// 同步内存中的引用消息
+			if (this.isActive(convKey)) {
+				this.messages.forEach(m1 => {
+					if (m1.id == recallMessageId) {
+						m1.status = MESSAGE_STATUS.RECALL;
+						m1.content = recallMessageTip;
+						m1.type = MESSAGE_TYPE.TIP_TEXT;
+					}
+				})
+			}
+			// 撤回指令也要入库，保证seqNo连续
+			message.convKey = conv.key;
+			batchMessages.push(message);
+			await getDB().saveConversationAndMessage([toRaw(conv)], batchMessages);
+		},
+		async remove(convKey) {
+			const idx = this.findIdx(convKey);
+			this.conversations.splice(idx, 1);
+			this.conversationMap.delete(convKey);
+			if (this.isActive(convKey)) {
+				this.activeConversation = null;
+				this.messages = []
+			}
+			await getDB().deleteMessageByConvKey(convKey);
+			await getDB().deleteConversationByKey(convKey);
+		},
+		async cleanMessage(convKey) {
+			const conv = this.conversationMap.get(convKey);
+			conv.lastContent = '';
+			conv.unreadCount = 0;
+			conv.atMe = false;
+			conv.atAll = false;
+			conv.lastAtMessageId = -1;
+			conv.sendNickName = '';
+			if (this.isActive(convKey)) {
+				this.messages = []
+			}
+			await getDB().deleteMessageByConvKey(convKey);
+			await getDB().saveConversation(toRaw(conv));
+		},
+		async setDnd(convKey, isDnd) {
+			const conv = this.conversationMap.get(convKey);
+			if (!conv) return;
+			conv.isDnd = isDnd;
+			await getDB().saveConversation(toRaw(conv));
+		},
+		async setTop(convKey, isTop) {
+			const conv = this.conversationMap.get(convKey);
+			if (!conv) return;
+			conv.isTop = isTop;
+			await this.moveTop(convKey);
+			await getDB().saveConversation(toRaw(conv));
+		},
+		async moveTop(convKey) {
+			const idx = this.findIdx(convKey);
+			const conv = this.conversationMap.get(convKey);
+			const insertIdx = conv.isTop ? 0 : this.findTopSize();
+			if (idx != insertIdx) {
+				this.conversations.splice(idx, 1);
+				this.conversations.splice(insertIdx, 0, conv);
+				conv.optTime = new Date().getTime();
+				await getDB().saveConversation(toRaw(conv));
+			}
+		},
+		async readedMessage(convKey, messageId) {
+			const conv = this.conversationMap.get(convKey);
+			// 没传messageId就是整个会话已读
+			messageId = messageId || conv.maxMessageId;
+			if (conv && conv.maxReadedId < messageId) {
+				conv.maxReadedId = messageId;
+				await getDB().saveConversation(toRaw(conv));
+			}
+		},
+		async resetUnreadCount(convKey) {
+			const conv = this.conversationMap.get(convKey);
+			if (conv) {
+				conv.unreadCount = 0;
+				await getDB().saveConversation(toRaw(conv));
+			}
+		},
+		async resetAtMessage(convKey) {
+			const conv = this.conversationMap.get(convKey);
+			if (conv) {
+				conv.atAll = false;
+				conv.atMe = false;
+				conv.lastAtMessageId = -1;
+				await getDB().saveConversation(toRaw(conv));
+			}
+		},
+		async refreshAtMessage(convKey, readedMessages) {
+			const conv = this.conversationMap.get(convKey);
+			if (!conv.atAll && !conv.atMe) {
+				return;
+			}
+			if (readedMessages.some(m => m.id == conv.lastAtMessageId)) {
+				await this.resetAtMessage(convKey);
+			}
+		},
+		async updateFromFriend(friend) {
+			let conv = this.findByFriend(friend.id);
 			// 更新会话中的昵称和头像
-			if (chat && (chat.headImage != user.headImageThumb ||
-					chat.showName != user.nickName)) {
-				chat.headImage = user.headImageThumb;
-				chat.showName = user.nickName;
-				chat.stored = false;
-				this.saveToStorage();
+			if (conv && (conv.headImage != friend.headImage ||
+					conv.showName != friend.showNickName)) {
+				conv.headImage = friend.headImage;
+				conv.showName = friend.showNickName;
+				await getDB().saveConversation(toRaw(conv));
 			}
 		},
-		updateChatFromGroup(group) {
-			let chat = this.findChatByGroup(group.id);
-			if (chat && (chat.headImage != group.headImageThumb ||
-					chat.showName != group.showGroupName)) {
-				// 更新会话中的群名称和头像
-				chat.headImage = group.headImageThumb;
-				chat.showName = group.showGroupName;
-				chat.stored = false;
-				this.saveToStorage();
+		async updateFromUser(user) {
+			let conv = this.findByFriend(user.id);
+			// 更新会话中的昵称和头像
+			if (conv && (conv.headImage != user.headImageThumb ||
+					conv.showName != user.nickName)) {
+				conv.headImage = user.headImageThumb;
+				conv.showName = user.nickName;
+				await getDB().saveConversation(toRaw(conv));
 			}
+		},
+		async updateFromGroup(group) {
+			let conv = this.findByGroup(group.id);
+			if (conv && (conv.headImage != group.headImageThumb ||
+					conv.showName != group.showGroupName)) {
+				// 更新会话中的群名称和头像
+				conv.headImage = group.headImageThumb;
+				conv.showName = group.showGroupName;
+				await getDB().saveConversation(toRaw(conv));
+			}
+		},
+		async refreshMinSeqNo(convKey) {
+			const conv = this.conversationMap.get(convKey);
+			for (const m of this.messages) {
+				if (m.seqNo) {
+					conv.minSeqNo = m.seqNo;
+					await getDB().saveConversation(toRaw(conv));
+					break;
+				}
+			}
+		},
+		setDraftText(convKey, draftText) {
+			const conv = this.conversationMap.get(convKey);
+			conv.draftText = draftText;
+		},
+		setEditorDraft(convKey, draft) {
+			this.editorDraftMap.set(convKey, draft);
+		},
+		getEditorDraft(convKey) {
+			return this.editorDraftMap.get(convKey);
 		},
 		setLoading(loading) {
 			this.loading = loading;
 		},
-		setDnd(chatInfo, isDnd) {
-			let chat = this.findChat(chatInfo);
-			if (chat) {
-				chat.isDnd = isDnd;
-			}
-		},
-		refreshChats() {
-			let chats = cacheChats || this.chats;
-			// 更新会话免打扰状态
+		refreshTopAndDnd() {
+			// 更新会话置顶和免打扰状态
 			const friendStore = useFriendStore();
 			const groupStore = useGroupStore();
-			chats.forEach(chat => {
-				if (chat.type == 'PRIVATE') {
-					let friend = friendStore.findFriend(chat.targetId);
+			this.conversations.forEach(conv => {
+				if (conv.type == CONVERSATION_TYPE.PRIVATE) {
+					let friend = friendStore.findFriend(conv.targetId);
 					if (friend) {
-						chat.isDnd = friend.isDnd
+						conv.isDnd = friend.isDnd;
+						conv.isTop = friend.isTop;
+						conv.companyName = friend.companyName
 					}
-				} else if (chat.type == 'GROUP') {
-					let group = groupStore.findGroup(chat.targetId);
+				} else if (conv.type == CONVERSATION_TYPE.GROUP) {
+					let group = groupStore.findGroup(conv.targetId);
 					if (group) {
-						chat.isDnd = group.isDnd
+						conv.isDnd = group.isDnd;
+						conv.isTop = group.isTop;
 					}
 				}
 			})
-			// 排序
-			chats.sort((chat1, chat2) => chat2.lastSendTime - chat1.lastSendTime);
-			// #ifndef APP-PLUS
-			// h5和小程序的stroge一般只有5m,大约只能存储1w条消息，所以可能需要清理部分历史消息
-			const storageInfo = uni.getStorageInfoSync();
-			console.log(`storage缓存: ${storageInfo.currentSize} KB`)
-			// 空间不足(大于3mb)时，清理这个设备登录过其他账户的消息
-			if (storageInfo && storageInfo.currentSize > 3000) {
-				console.log("storage空间不足,清理其他用户缓存..")
-				this.cleanOtherUserCache();
-			}
-			// 保证消息总数量不超过3000条，每个会话不超过500条
-			this.fliterMessage(chats, 3000, 500);
-			// #endif
-			// 记录热数据索引位置
-			chats.forEach(chat => {
-				if (!chat.hotMinIdx || chat.hotMinIdx != chat.messages.length) {
-					chat.hotMinIdx = chat.messages.length;
-					chat.stored = false;
+		},
+		startSortTimer() {
+			this.sort();
+			this.sortTimer && clearInterval(this.sortTimer);
+			this.sortTimer = setInterval(() => this.sort(), 1000)
+		},
+		sort() {
+			this.conversations.sort((conv1, conv2) => {
+				if (conv1.isTop && !conv2.isTop) {
+					return -1;
+				} else if (conv2.isTop && !conv1.isTop) {
+					return 1;
+				} else {
+					return conv2.optTime - conv1.optTime
 				}
 			});
-			// 将消息一次性装载回来
-			this.chats = chats;
-			// 清空缓存,不再使用
-			cacheChats = null;
-			// 消息持久化
-			this.saveToStorage(true);
 		},
-		fliterMessage(chats, maxTotalSize, maxPerChatSize) {
-			// 每个会话只保留maxPerChatSize条消息
-			let remainTotalSize = 0;
-			chats.forEach(chat => {
-				if (chat.messages.length > maxPerChatSize) {
-					let idx = chat.messages.length - maxPerChatSize;
-					chat.messages = chat.messages.slice(idx);
-				}
-				remainTotalSize += chat.messages.length;
-			})
-			// 保证消息总数不超过maxTotalSize条，否则继续清理
-			if (remainTotalSize > maxTotalSize) {
-				this.fliterMessage(chats, maxTotalSize, maxPerChatSize / 2);
+		scrollToMessage(localId) {
+			// scrollMessageLocalId放在pinia管理，是因为和messages同步处理可以减少页面闪烁的情况
+			if (this.scrollMessageLocalId != localId) {
+				this.scrollMessageLocalId = localId;
+			} else {
+				// scrollMessageLocalId的值必须要有变化，滚动条才会移动
+				this.scrollMessageLocalId = "";
+				nextTick(() => this.scrollMessageLocalId = localId);
 			}
-			console.log("消息留存总数量:", remainTotalSize)
-			console.log("单会话消息数量:", maxPerChatSize)
 		},
-		cleanOtherUserCache() {
-			const userStore = useUserStore();
-			const userId = userStore.userInfo.id;
-			const prefix = "chats-app-" + userId;
-			const res = uni.getStorageInfoSync();
-			res.keys.forEach(key => {
-				// 清理其他用户的消息
-				if (key.startsWith("chats-app") && !key.startsWith(prefix)) {
-					uni.removeStorageSync(key);
-					console.log("清理key:", key)
+		existMissMessage(messages, minSeqNo, maxSeqNo) {
+			for (let i = minSeqNo; i <= maxSeqNo; i++) {
+				if (!messages.some(m => m.id && m.seqNo == i)) {
+					return true;
 				}
-			})
-		},
-		saveToStorage(withColdMessage) {
-			// 加载中不保存，防止卡顿
-			if (this.loading) {
-				return;
 			}
-			const userStore = useUserStore();
-			let userId = userStore.userInfo.id;
-			let key = "chats-app-" + userId;
-			let chatKeys = [];
-			// 按会话为单位存储，只存储有改动的会话
-			this.chats.forEach((chat) => {
-				let chatKey = `${key}-${chat.type}-${chat.targetId}`
-				if (!chat.stored) {
-					if (chat.delete) {
-						uni.removeStorageSync(chatKey);
-					} else {
-						// 存储冷数据
-						if (withColdMessage) {
-							let coldChat = Object.assign({}, chat);
-							coldChat.messages = chat.messages.slice(0, chat.hotMinIdx);
-							uni.setStorageSync(chatKey, coldChat)
-						}
-						// 存储热消息
-						let hotKey = chatKey + '-hot';
-						let hotChat = Object.assign({}, chat);
-						hotChat.messages = chat.messages.slice(chat.hotMinIdx)
-						uni.setStorageSync(hotKey, hotChat);
-					}
-					chat.stored = true;
-				}
-				if (!chat.delete) {
-					chatKeys.push(chatKey);
-				}
-			})
-			// 会话核心信息
-			let chatsData = {
-				privateMsgMaxId: this.privateMsgMaxId,
-				groupMsgMaxId: this.groupMsgMaxId,
-				chatKeys: chatKeys
-			}
-			uni.setStorageSync(key, chatsData)
-			// 清理已删除的会话
-			this.chats = this.chats.filter(chat => !chat.delete)
+			return false;
 		},
-		clear(state) {
-			cacheChats = [];
-			this.chats = [];
-			this.privateMsgMaxId = 0;
-			this.groupMsgMaxId = 0;
-			this.loadingPrivateMsg = false;
-			this.loadingGroupMsg = false;
+		clear() {
+			this.activeConversation = null;
+			this.conversations = [];
+			this.conversationMap.clear();
+			this.messages = [];
+			this.loading = true;
 		},
-		loadChat() {
-			return new Promise((resolve, reject) => {
-				let userStore = useUserStore();
-				let userId = userStore.userInfo.id;
-				let chatsData = uni.getStorageSync("chats-app-" + userId)
-				if (chatsData) {
-					if (chatsData.chatKeys) {
-						chatsData.chats = [];
-						chatsData.chatKeys.forEach(key => {
-							let coldChat = uni.getStorageSync(key);
-							let hotChat = uni.getStorageSync(key + '-hot');
-							if (!coldChat && !hotChat) {
-								return;
-							}
-							// 防止消息一直处在发送中状态
-							hotChat && hotChat.messages.forEach(msg => {
-								if (msg.status == MESSAGE_STATUS.SENDING) {
-									msg.status = MESSAGE_STATUS.FAILED
-								}
-							})
-							// 冷热消息合并
-							let chat = Object.assign({}, coldChat, hotChat);
-							if (hotChat && coldChat) {
-								chat.messages = coldChat.messages.concat(hotChat.messages)
-							}
-							// 历史版本没有readedMessageIdx字段，做兼容一下
-							chat.readedMessageIdx = chat.readedMessageIdx || 0;
-							chatsData.chats.push(chat);
-						})
-					}
-					this.initChats(chatsData);
-				}
-				resolve()
-			})
+		async loadConversations() {
+			const conversations = await getDB().loadAllConversations();
+			this.init(conversations || []);
 		}
 	},
 	getters: {
-		curChats: (state) => {
-			if (cacheChats && state.loading) {
-				return cacheChats;
-			}
-			return state.chats;
-		},
-		findChatIdx: (state) => (chat) => {
-			let chats = state.curChats;
-			for (let idx in chats) {
-				if (chats[idx].type == chat.type &&
-					chats[idx].targetId === chat.targetId) {
-					chat = state.chats[idx];
-					return idx;
+		findIdx: (state) => (convKey) => {
+			for (let idx in state.conversations) {
+				if (state.conversations[idx].key == convKey) {
+					return idx
 				}
 			}
+			return -1;
 		},
-		findChat: (state) => (chat) => {
-			let chats = state.curChats;
-			let idx = state.findChatIdx(chat);
-			return chats[idx];
+		findTopSize: (state) => () => {
+			return state.conversations.filter(conv => conv.isTop).length;
 		},
-		findChatByFriend: (state) => (fid) => {
-			return state.curChats.find(chat => chat.type == 'PRIVATE' &&
-				chat.targetId == fid)
-		},
-		findChatByGroup: (state) => (gid) => {
-			return state.curChats.find(chat => chat.type == 'GROUP' &&
-				chat.targetId == gid)
-		},
-		findMessage: (state) => (chat, msgInfo) => {
-			if (!chat) {
-				return null;
-			}
-			// 通过id判断
-			if (msgInfo.id) {
-				for (let idx = chat.messages.length - 1; idx >= 0; idx--) {
-					let m = chat.messages[idx];
-					if (m.id && msgInfo.id == m.id) {
-						return m;
-					}
-					// 如果id比要查询的消息小，说明没有这条消息
-					if (m.id && m.id < msgInfo.id) {
-						break;
-					}
+		findMaxMessageId: (state) => (type) => {
+			let maxId = 0;
+			state.conversations.forEach(conv => {
+				if (conv.maxMessageId && conv.type == type) {
+					maxId = Math.max(maxId, conv.maxMessageId)
 				}
-			}
-			// 正在发送中的临时消息可能没有id,只有tmpId
-			if (msgInfo.selfSend && msgInfo.tmpId) {
-				for (let idx = chat.messages.length - 1; idx >= 0; idx--) {
-					let m = chat.messages[idx];
-					if (!m.selfSend || !m.tmpId) {
-						continue;
-					}
-					if (msgInfo.tmpId == m.tmpId) {
-						return m;
-					}
-					// 如果id比要查询的消息小，说明没有这条消息
-					if (m.tmpId && m.tmpId < msgInfo.tmpId) {
-						break;
-					}
+			});
+			return maxId;
+		},
+		findMaxSeqNo: (state) => (type) => {
+			let maxSeqNo = 0;
+			state.conversations.forEach(conv => {
+				if (conv.maxSeqNo && conv.type == type) {
+					maxSeqNo = Math.max(maxSeqNo, conv.maxSeqNo)
 				}
-			}
-			return null;
+			});
+			return maxSeqNo;
+		},
+		findByFriend: (state) => (friendId) => {
+			const convKey = getDB().buildConversationKey(CONVERSATION_TYPE.PRIVATE, friendId);
+			return state.conversationMap.get(convKey);
+		},
+		findByGroup: (state) => (groupId) => {
+			const convKey = getDB().buildConversationKey(CONVERSATION_TYPE.GROUP, groupId);
+			return state.conversationMap.get(convKey);
+		},
+		isActive: (state) => (convKey) => {
+			return state.activeConversation && state.activeConversation.key == convKey;
+		},
+		clone: (o) => {
+			return JSON.parse(JSON.stringify(o));
 		}
 	}
 });

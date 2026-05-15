@@ -6,31 +6,28 @@
 				<view>消息接收中...</view>
 			</custom-loading>
 		</view>
-		<view v-else-if="initializing" class="chat-loading">
-			<custom-loading :size="50" :mask="false">
-				<view>正在初始化...</view>
-			</custom-loading>
-		</view>
 		<view class="nav-bar" v-if="showSearch">
 			<view class="nav-search">
 				<uni-search-bar focus="true" radius="100" v-model="searchText" cancelButton="none"
 					placeholder="搜索"></uni-search-bar>
 			</view>
 		</view>
-		<view class="chat-tip" v-if="!initializing && !loading && chatStore.chats.length == 0">
+		<view class="chat-tip" v-if="!loading && showConversations.length == 0">
 			<view class="tip-icon">
 				<text class="iconfont icon-chat"></text>
 			</view>
 			<view class="tip-title">还没有聊天</view>
 			<view class="tip-content">添加好友或创建群聊，开始精彩的对话吧</view>
 		</view>
-		<scroll-view class="scroll-bar" v-else scroll-with-animation="true" scroll-y="true">
-			<view v-for="(chat, index) in chatStore.chats" :key="index">
-				<long-press-menu v-if="isShowChat(chat)" :items="menu.items" @select="onSelectMenu($event, index)">
-					<chat-item :chat="chat" :index="index" :active="menu.chatIdx == index"></chat-item>
-				</long-press-menu>
-			</view>
+		<scroll-view class="scroll-bar" v-else scroll-with-animation="true" scroll-y="true"
+			@scrolltolower="onScrollToBottom">
+			<long-press-menu ref="longPressMenu" @select="onSelectChatMenu">
+				<view v-for="conv in showConversations" :key="conv.key">
+					<chat-item :conversation="conv" @longpress.prevent="onChatLongPress($event, conv)"></chat-item>
+				</view>
+			</long-press-menu>
 		</scroll-view>
+		<popup-modal ref="modal"></popup-modal>
 	</view>
 </template>
 
@@ -38,57 +35,121 @@
 export default {
 	data() {
 		return {
+			showMaxIdx: 30,
 			showSearch: false,
 			searchText: "",
-			menu: {
-				show: false,
-				style: "",
-				chatIdx: -1,
-				isTouchMove: false,
-				items: [{
-						key: 'DELETE',
-						name: '删除该聊天',
-						icon: 'trash',
-						color: '#e64e4e'
-					},
-					{
-						key: 'TOP',
-						name: '置顶该聊天',
-						icon: 'arrow-up'
-					}
-				]
-			}
+			menuConv: null,
 		}
 	},
 	methods: {
-		onSelectMenu(item, chatIdx) {
+		onScrollToBottom() {
+			// 多显示一页数据
+			if (this.showMaxIdx < this.chatStore.chats.length) {
+				this.showMaxIdx += 30
+			}
+		},
+		onChatLongPress(e, conv) {
+			// 屏幕移动时不弹出
+			if (this.isTouchMove) {
+				return;
+			}
+			this.menuConv = conv;
+			this.menuTouch = e.touches[0];
+			const menuItems = this.chatMenuItems(conv);
+			this.$refs.longPressMenu.open(e, menuItems);
+		},
+		onSelectChatMenu(item) {
 			switch (item.key) {
 				case 'DELETE':
-					this.removeChat(chatIdx);
+					this.removeChat(this.menuConv);
+					break;
+				case 'DND':
+					this.onDnd(this.menuConv);
 					break;
 				case 'TOP':
-					this.moveToTop(chatIdx);
+					this.onTop(this.menuConv);
 					break;
 				default:
 					break;
 			}
-			this.menu.show = false;
 		},
-		removeChat(chatIdx) {
-			this.chatStore.removeChat(chatIdx);
+		removeChat(conv) {
+			this.$refs.modal.open({
+				title: '确认删除',
+				content: `确认删除'${conv.showName}'的聊天记录?`,
+				success: () => {
+					this.chatStore.remove(conv.key);
+				}
+			});
 		},
-		moveToTop(chatIdx) {
-			this.chatStore.moveTop(chatIdx);
-		},
-		isShowChat(chat) {
-			if (chat.delete) {
-				return false;
+		onDnd(conv) {
+			if (this.isPrivate(conv)) {
+				this.setFriendDnd(conv, conv.targetId, !conv.isDnd)
+			} else {
+				this.setGroupDnd(conv, conv.targetId, !conv.isDnd)
 			}
-			return !this.searchText || chat.showName.includes(this.searchText)
+		},
+		setFriendDnd(conv, friendId, isDnd) {
+			const formData = {
+				friendId: friendId,
+				isDnd: isDnd
+			}
+			this.$http({
+				url: '/friend/dnd',
+				method: 'put',
+				data: formData
+			}).then(() => {
+				this.friendStore.setDnd(friendId, isDnd)
+				this.chatStore.setDnd(conv.key, isDnd)
+			})
+		},
+		setGroupDnd(conv, groupId, isDnd) {
+			const formData = {
+				groupId: groupId,
+				isDnd: isDnd
+			}
+			this.$http({
+				url: '/group/dnd',
+				method: 'put',
+				data: formData
+			}).then(() => {
+				this.groupStore.setDnd(groupId, isDnd)
+				this.chatStore.setDnd(conv.key, isDnd)
+			})
+		},
+		onTop(conv) {
+			this.chatStore.setTop(conv.key, true)
+		},
+		isShow(conv) {
+			return !this.searchText || conv.showName.includes(this.searchText)
 		},
 		onSearch() {
 			this.showSearch = !this.showSearch;
 			this.searchText = "";
+		},
+		chatMenuItems(conv) {
+			let items = [];
+			items.push({
+				key: 'DELETE',
+				name: '删除该聊天',
+				danger: true
+			})
+			items.push({
+				key: 'TOP',
+				name: '置顶该聊天',
+			})
+			if (conv.isDnd) {
+				items.push({
+					key: 'DND',
+					name: '新消息提醒'
+				})
+			} else {
+				items.push({
+					key: 'DND',
+					name: '消息免打扰'
+				})
+			}
+			return items;
 		},
 		refreshUnreadBadge() {
 			if (this.unreadCount > 0) {
@@ -102,28 +163,37 @@ export default {
 					complete: () => {}
 				})
 			}
-		}
+		},
+		isPrivate(conv) {
+			return this.$enums.CONVERSATION_TYPE.PRIVATE == conv.type
+		},
+		isGroup(conv) {
+			return this.$enums.CONVERSATION_TYPE.GROUP == conv.type
+		},
 	},
 	computed: {
 		unreadCount() {
-			let count = 0;
-			this.chatStore.chats.forEach(chat => {
-				if (!chat.isDnd && !chat.delete) {
-					count += chat.unreadCount;
+			if (!this.chatStore) {
+				return 0;
+			}
+			let unreadCount = 0;
+			const conversations = this.chatStore.conversations;
+			conversations.forEach((conv) => {
+				if (!conv.isDnd) {
+					unreadCount += conv.unreadCount
 				}
 			})
-			return count;
+			return unreadCount;
 		},
 		loading() {
-			return this.chatStore.loading;
+			return this.chatStore && this.chatStore.loading;
 		},
-		initializing() {
-			return !this.configStore.appInit;
+		showConversations() {
+			if (!this.chatStore) {
+				return [];
+			}
+			return this.chatStore.conversations.filter(conv => this.isShow(conv));
 		},
-		showChats() {
-			this.chatStore.chats.filter((chat) => !chat.delete && chat.showName && chat.showName.includes(this
-				.searchText))
-		}
 	},
 	watch: {
 		unreadCount(newCount, oldCount) {
@@ -153,7 +223,7 @@ export default {
 		padding: 40rpx;
 		text-align: center;
 		width: 80%;
-		
+
 		.tip-icon {
 			width: 120rpx;
 			height: 120rpx;
@@ -165,7 +235,7 @@ export default {
 			margin-bottom: 40rpx;
 			box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.08);
 			border: 1rpx solid $im-bg-active;
-			
+
 			.iconfont {
 				font-size: 60rpx;
 				color: $im-text-color-lighter;
