@@ -28,7 +28,7 @@
 		<bar-group v-if="isFriend">
 			<switch-bar title="消息免打扰" :checked="friendInfo.isDnd" @change="onDndChange"></switch-bar>
 		</bar-group>
-		<bar-group v-if="chatIdx>=0">
+		<bar-group v-if="isExistHistory">
 			<arrow-bar title="清空聊天记录" @tap="onCleanMessage()"></arrow-bar>
 		</bar-group>
 		<bar-group>
@@ -38,6 +38,7 @@
 			<btn-bar v-show="isFriend" type="danger" title="删除好友" @tap="onDelFriend()"></btn-bar>
 		</bar-group>
 	</view>
+	<popup-modal ref="modal"></popup-modal>
 </template>
 
 <script>
@@ -56,20 +57,21 @@ export default {
 				})
 			}
 		},
-		onSendMessage() {
-			let chat = {
-				type: 'PRIVATE',
+		async onSendMessage() {
+			const chatInfo = {
+				convKey: this.convKey,
+				type: this.$enums.CONVERSATION_TYPE.PRIVATE,
 				targetId: this.userInfo.id,
 				showName: this.userInfo.nickName,
 				headImage: this.userInfo.headImageThumb,
+				companyName: this.userInfo.companyName,
+				isDnd: this.friendInfo.isDnd,
+				isTop: this.friendInfo.isTop
 			};
-			if (this.isFriend) {
-				chat.isDnd = this.friendInfo.isDnd;
-			}
-			this.chatStore.openChat(chat);
-			let chatIdx = this.chatStore.findChatIdx(chat);
+			await this.chatStore.openChat(chatInfo);
+			await this.chatStore.moveTop(this.convKey)
 			uni.navigateTo({
-				url: "/pages/chat/chat-box?chatIdx=" + chatIdx
+				url: "/pages/chat/chat-box?convKey=" + this.convKey
 			})
 		},
 		onAddFriend() {
@@ -77,12 +79,13 @@ export default {
 				url: "/friend/add?friendId=" + this.userInfo.id,
 				method: "POST"
 			}).then((data) => {
-				let friend = {
+				const friend = {
 					id: this.userInfo.id,
 					nickName: this.userInfo.nickName,
 					headImage: this.userInfo.headImageThumb,
 					online: this.userInfo.online,
-					deleted: false
+					deleted: false,
+					version: 0
 				}
 				this.friendStore.addFriend(friend);
 				uni.showToast({
@@ -92,12 +95,10 @@ export default {
 			})
 		},
 		onDelFriend() {
-			uni.showModal({
+			this.$refs.modal.open({
 				title: "确认删除",
 				content: `确认删除 '${this.userInfo.nickName}',并删除聊天记录吗?`,
-				success: (res) => {
-					if (res.cancel)
-						return;
+				success: () => {
 					this.$http({
 						url: `/friend/delete/${this.userInfo.id}`,
 						method: 'delete'
@@ -113,14 +114,12 @@ export default {
 			})
 		},
 		onCleanMessage() {
-			uni.showModal({
+			this.$refs.modal.open({
 				title: '清空聊天记录',
 				content: `确认删除与'${this.userInfo.nickName}'的聊天记录吗?`,
 				confirmText: '确认',
-				success: (res) => {
-					if (res.cancel)
-						return;
-					this.chatStore.cleanMessage(this.chatIdx);
+				success: () => {
+					this.chatStore.cleanMessage(this.convKey);
 					uni.showToast({
 						title: `您清空了'${this.userInfo.nickName}'的聊天记录`,
 						icon: 'none'
@@ -129,9 +128,10 @@ export default {
 			})
 		},
 		onDndChange(e) {
-			let isDnd = e.detail.value;
-			let friendId = this.userInfo.id;
-			let formData = {
+			const convKey = this.convKey;
+			const isDnd = e.detail.value;
+			const friendId = this.userInfo.id;
+			const formData = {
 				friendId: friendId,
 				isDnd: isDnd
 			}
@@ -140,25 +140,19 @@ export default {
 				method: 'PUT',
 				data: formData
 			}).then(() => {
-				this.friendStore.setDnd(friendId, isDnd)
-				let chat = this.chatStore.findChatByFriend(friendId)
-				if (chat) {
-					this.chatStore.setDnd(chat, isDnd)
-				}
+				this.friendStore.setDnd(friendId, isDnd);
+				this.chatStore.setDnd(convKey, isDnd);
 			})
 		},
 		updateFriendInfo() {
-			if (this.isFriend) {
-				// store的数据不能直接修改，深拷贝一份store的数据
-				let friend = JSON.parse(JSON.stringify(this.friendInfo));
-				friend.headImage = this.userInfo.headImageThumb;
-				friend.nickName = this.userInfo.nickName;
-
-				// 更新好友列表中的昵称和头像
-				this.friendStore.updateFriend(friend);
-				// 更新会话中的头像和昵称
-				this.chatStore.updateChatFromFriend(this.userInfo);
-			}
+			// store的数据不能直接修改，深拷贝一份store的数据
+			const friend = JSON.parse(JSON.stringify(this.friendInfo));
+			friend.headImage = this.userInfo.headImageThumb;
+			friend.nickName = this.userInfo.nickName;
+			// 更新好友列表中的昵称和头像
+			this.friendStore.updateFriend(friend);
+			// 更新会话中的头像和昵称
+			this.chatStore.updateFromFriend(friend);
 		},
 		loadUserInfo(id) {
 			this.$http({
@@ -168,23 +162,21 @@ export default {
 				this.userInfo = user;
 				// 如果发现好友的头像和昵称改了，进行更新
 				this.updateFriendInfo()
-
 			})
 		}
 	},
 	computed: {
+		convKey() {
+			return this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.PRIVATE, this.userInfo.id);
+		},
 		isFriend() {
 			return this.friendStore.isFriend(this.userInfo.id);
 		},
 		friendInfo() {
 			return this.friendStore.findFriend(this.userInfo.id);
 		},
-		chatIdx() {
-			let chat = this.chatStore.findChatByFriend(this.userInfo.id);
-			if (chat) {
-				return this.chatStore.findChatIdx(chat);
-			}
-			return -1;
+		isExistHistory() {
+			return this.chatStore.conversationMap.has(this.convKey);
 		}
 	},
 	onLoad(options) {
@@ -192,6 +184,7 @@ export default {
 		this.loadUserInfo(options.id);
 	}
 }
+
 </script>
 
 <style lang="scss" scoped>
@@ -218,7 +211,6 @@ export default {
 			.label-text {
 				font-size: $im-font-size-small;
 				color: $im-text-color-light;
-
 			}
 
 			.content-text {
@@ -249,6 +241,6 @@ export default {
 			}
 		}
 	}
-
 }
+
 </style>

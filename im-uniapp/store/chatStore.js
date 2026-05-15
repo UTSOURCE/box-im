@@ -8,8 +8,6 @@ import http from '@/common/request.js'
 import useUserStore from './userStore.js';
 import useFriendStore from './friendStore.js';
 import useGroupStore from './groupStore.js';
-
-
 export default defineStore('chatStore', {
 	state: () => {
 		return {
