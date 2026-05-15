@@ -94,6 +94,10 @@ public final class RedisKey {
     public static final String IM_CACHE_GROUP_MEMBER_ID = "im:cache:group_member_ids";
 
     /**
+     * 缓存消息删除记录
+     */
+    public static final String IM_CACHE_MESSAGE_DELETION = "im:cache:message:deletion";
+    /**
      * 重复提交
      */
     public static final String IM_REPEAT_SUBMIT = "im:repeat:submit";

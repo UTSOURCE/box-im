@@ -521,11 +521,19 @@ export default {
 				title: '删除消息',
 				content: '确认删除消息?',
 				success: async (res) => {
-					await this.chatStore.deleteMessage(this.conversation.key, message)
-					uni.showToast({
-						title: "删除成功",
-						icon: "none"
-					})
+					const convKey = this.conversation.key;
+					if (message.id) {
+						const data = {
+							chatId: this.conversation.targetId,
+							messageIds: [message.id]
+						}
+						await this.$http({
+							url: `/message/${this.chatTypeText(this.conversation)}/deleteMessage`,
+							method: 'delete',
+							data: data
+						});
+					}
+					this.chatStore.deleteMessage(convKey, message);
 				}
 			})
 		},

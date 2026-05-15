@@ -4,7 +4,6 @@ import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
 import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -16,14 +15,20 @@ import com.bx.imcommon.model.IMUserInfo;
 import com.bx.implatform.annotation.RedisLock;
 import com.bx.implatform.contant.Constant;
 import com.bx.implatform.contant.RedisKey;
+import com.bx.implatform.dto.ChatDeleteDTO;
+import com.bx.implatform.dto.MessageDeleteDTO;
 import com.bx.implatform.dto.PrivateMessageDTO;
 import com.bx.implatform.dto.PrivateMessageHistoryDTO;
+import com.bx.implatform.entity.MessageDeletion;
 import com.bx.implatform.entity.PrivateMessage;
+import com.bx.implatform.enums.ChatType;
+import com.bx.implatform.enums.DeleteType;
 import com.bx.implatform.enums.MessageStatus;
 import com.bx.implatform.enums.MessageType;
 import com.bx.implatform.exception.GlobalException;
 import com.bx.implatform.mapper.PrivateMessageMapper;
 import com.bx.implatform.service.FriendService;
+import com.bx.implatform.service.MessageDeletionService;
 import com.bx.implatform.service.PrivateMessageService;
 import com.bx.implatform.session.SessionContext;
 import com.bx.implatform.session.UserSession;
@@ -49,10 +54,11 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper, PrivateMessage>
-    implements PrivateMessageService {
+        implements PrivateMessageService {
 
     private final FriendService friendService;
     private final IMClient imClient;
+    private final MessageDeletionService messageDeletionService;
     private final SensitiveFilterUtil sensitiveFilterUtil;
     private final RedisTemplate<String, Object> redisTemplate;
     private final RedissonClient redissonClient;
@@ -76,7 +82,7 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
             message.setContent(sensitiveFilterUtil.filter(dto.getContent()));
         }
         // 保存消息(走代理触发分布式锁)
-        PrivateMessageServiceImpl proxy = (PrivateMessageServiceImpl)AopContext.currentProxy();
+        PrivateMessageServiceImpl proxy = (PrivateMessageServiceImpl) AopContext.currentProxy();
         proxy.saveMessage(message);
         // 推送消息
         PrivateMessageVO vo = BeanUtils.copyProperties(message, PrivateMessageVO.class);
@@ -103,7 +109,7 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
             throw new GlobalException("这条消息不是由您发送,无法撤回");
         }
         if (System.currentTimeMillis() - recallMessage.getSendTime()
-            .getTime() > IMConstant.ALLOW_RECALL_SECOND * 1000) {
+                .getTime() > IMConstant.ALLOW_RECALL_SECOND * 1000) {
             throw new GlobalException("消息已发送超过5分钟，无法撤回");
         }
         // 记录撤回提示语到扩展字段(用于前端展示)
@@ -124,7 +130,7 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         contentMap.put("tip", recallTip);
         message.setContent(JSON.toJSONString(contentMap));
         // 走代理触发分布式锁
-        PrivateMessageServiceImpl proxy = (PrivateMessageServiceImpl)AopContext.currentProxy();
+        PrivateMessageServiceImpl proxy = (PrivateMessageServiceImpl) AopContext.currentProxy();
         proxy.saveMessage(message);
         // 推送消息
         PrivateMessageVO vo = BeanUtils.copyProperties(message, PrivateMessageVO.class);
@@ -134,7 +140,7 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         sendMessage.setData(vo);
         imClient.sendPrivateMessage(sendMessage);
         log.info("撤回私聊消息，发送id:{},接收id:{}，内容:{}", message.getSendId(), message.getRecvId(),
-            message.getContent());
+                message.getContent());
         return vo;
     }
 
@@ -150,7 +156,7 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         wrapper.gt(PrivateMessage::getId, minId);
         wrapper.ge(PrivateMessage::getSendTime, minDate);
         wrapper.and(wp -> wp.eq(PrivateMessage::getSendId, session.getUserId()).or()
-            .eq(PrivateMessage::getRecvId, session.getUserId()));
+                .eq(PrivateMessage::getRecvId, session.getUserId()));
         wrapper.orderByDesc(PrivateMessage::getId);
         wrapper.last("limit " + Constant.MAX_OFFLINE_MESSAGE_SIZE);
         List<PrivateMessage> messages = this.list(wrapper);
@@ -158,10 +164,14 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         if (messages.size() >= Constant.MAX_OFFLINE_MESSAGE_SIZE) {
             messages = appendLastMessageInConversation(messages, minId);
         }
+        List<MessageDeletion> deletions =
+                messageDeletionService.findByChatType(session.getUserId(), ChatType.PRIVATE.getCode());
+        // 整个会话删除的消息不在重复推送
+        messages = messages.stream().filter(m -> !isDeleteChat(m, deletions)).collect(Collectors.toList());
         // 更新消息为送达状态
         List<Long> messageIds = messages.stream().filter(m -> m.getRecvId().equals(session.getUserId()))
-            .filter(m -> m.getStatus().equals(MessageStatus.PENDING.code())).map(PrivateMessage::getId)
-            .collect(Collectors.toList());
+                .filter(m -> m.getStatus().equals(MessageStatus.PENDING.code())).map(PrivateMessage::getId)
+                .collect(Collectors.toList());
         if (!messageIds.isEmpty()) {
             LambdaUpdateWrapper<PrivateMessage> updateWrapper = Wrappers.lambdaUpdate();
             updateWrapper.in(PrivateMessage::getId, messageIds);
@@ -169,10 +179,13 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
             update(updateWrapper);
         }
         // 转换vo
-        List<PrivateMessageVO> vos = messages.stream().map(m -> BeanUtils.copyProperties(m, PrivateMessageVO.class))
-            .collect(Collectors.toList());
+        List<PrivateMessageVO> vos = messages.stream().map(m -> {
+            PrivateMessageVO vo = BeanUtils.copyProperties(m, PrivateMessageVO.class);
+            vo.setDeleted(isDeleteMessage(m, deletions));
+            return vo;
+        }).toList();
         log.info("拉取离线私聊消息,用户id:{},数量:{},耗时:{},minId:{}", session.getUserId(), vos.size(),
-            System.currentTimeMillis() - time, minId);
+                System.currentTimeMillis() - time, minId);
         return vos.stream().sorted(Comparator.comparing(PrivateMessageVO::getId)).collect(Collectors.toList());
     }
 
@@ -250,6 +263,7 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         }
         return -1L;
     }
+
     /**
      * 保存消息 加分布式锁是为了让数据库自增id和seq_no保持同序
      */
@@ -287,10 +301,39 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         if (CollectionUtil.isEmpty(messages)) {
             return new ArrayList<>();
         }
+        // 已经删除的消息
+        List<MessageDeletion> deletions =
+                messageDeletionService.findByChatIdAndType(session.getUserId(), ChatType.PRIVATE.getCode(),
+                        dto.getFriendId());
+        // 整个会话删掉的消息就不再推送了
+        messages = messages.stream().filter(m -> !isDeleteChat(m, deletions)).collect(Collectors.toList());
         // 转换vo
-        return messages.stream().map(m -> BeanUtils.copyProperties(m, PrivateMessageVO.class))
-            .collect(Collectors.toList());
+        return messages.stream().map(m -> {
+            PrivateMessageVO vo = BeanUtils.copyProperties(m, PrivateMessageVO.class);
+            vo.setDeleted(isDeleteMessage(m, deletions));
+            return vo;
+        }).collect(Collectors.toList());
     }
+
+    @Override
+    public void deleteMessage(MessageDeleteDTO dto) {
+        UserSession session = SessionContext.getSession();
+        messageDeletionService.deleteByMessage(session.getUserId(), ChatType.PRIVATE.getCode(), dto.getChatId(),
+                dto.getMessageIds());
+    }
+
+    @Override
+    public void deleteChat(ChatDeleteDTO dto) {
+        Long userId = SessionContext.getSession().getUserId();
+        // 查询会话最大消息id
+        String convKey = ConvUtil.buildConvKey(userId, dto.getChatId());
+        Long maxMessageId = this.findMaxMessageId(convKey);
+        if (maxMessageId < 0) {
+            return;
+        }
+        messageDeletionService.deleteByChat(userId, ChatType.PRIVATE.getCode(), dto.getChatId(), maxMessageId);
+    }
+
 
     private Long getNextSeqNo(String convKey) {
         String key = StrUtil.join(":", RedisKey.IM_PRIVATE_MESSAGE_MAX_SEQ, convKey);
@@ -365,11 +408,11 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
             return messages;
         }
         List<String> keys =
-            fIds.stream().map(id -> buildMaxMessageIdKey(session.getUserId(), id)).collect(Collectors.toList());
+                fIds.stream().map(id -> buildMaxMessageIdKey(session.getUserId(), id)).collect(Collectors.toList());
         List<Object> maxMessageIds = redisTemplate.opsForValue().multiGet(keys);
         maxMessageIds =
-            maxMessageIds.stream().filter(id -> !Objects.isNull(id) && Long.parseLong(id.toString()) > minId)
-                .collect(Collectors.toList());
+                maxMessageIds.stream().filter(id -> !Objects.isNull(id) && Long.parseLong(id.toString()) > minId)
+                        .collect(Collectors.toList());
         if (maxMessageIds.isEmpty()) {
             return messages;
         }
@@ -380,6 +423,32 @@ public class PrivateMessageServiceImpl extends ServiceImpl<PrivateMessageMapper,
         List<PrivateMessage> lastMessages = this.list(wrapper);
         messages.addAll(lastMessages);
         return messages;
+    }
+
+    private Boolean isDeleteMessage(PrivateMessage message, List<MessageDeletion> deletions) {
+        return deletions.stream().anyMatch(deletion -> {
+            if (!message.getSendId().equals(deletion.getChatId()) && !message.getRecvId()
+                    .equals(deletion.getChatId())) {
+                return false;
+            }
+            if (DeleteType.BY_MESSAGE.getCode().equals(deletion.getDeleteType())) {
+                return deletion.getMessageId().equals(message.getId());
+            }
+            return false;
+        });
+    }
+
+    private Boolean isDeleteChat(PrivateMessage message, List<MessageDeletion> deletions) {
+        return deletions.stream().anyMatch(deletion -> {
+            if (!message.getSendId().equals(deletion.getChatId()) && !message.getRecvId()
+                    .equals(deletion.getChatId())) {
+                return false;
+            }
+            if (DeleteType.BY_CHAT.getCode().equals(deletion.getDeleteType())) {
+                return deletion.getMessageId() >= message.getId();
+            }
+            return false;
+        });
     }
 
     private Long getFriendId(UserSession session, PrivateMessage message) {

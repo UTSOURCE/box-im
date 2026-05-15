@@ -38,4 +38,7 @@ public class PrivateMessageVO {
     @Schema(description = " 发送时间")
     @JsonSerialize(using = DateToLongSerializer.class)
     private Date sendTime;
+
+    @Schema(description = " 是否删除")
+    private Boolean deleted;
 }

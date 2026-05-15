@@ -224,17 +224,24 @@ export default {
 				confirmButtonText: '确定',
 				cancelButtonText: '取消',
 				type: 'warning'
-			}).then(() => {
-				this.$http({
+			}).then(async () => {
+				await this.$http({
 					url: `/group/quit/${group.id}`,
 					method: 'delete'
-				}).then(() => {
-					const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, group.id)
-					this.groupStore.removeGroup(group.id);
-					this.chatStore.remove(convKey);
-					this.$message.success(`您已退出'${group.name}'`);
-					this.reset();
 				});
+				this.groupStore.removeGroup(group.id);
+				// 删除会话
+				const data = { chatId: group.id }
+				await this.$http({
+					url: `/message/group/deleteChat`,
+					method: 'delete',
+					data: data
+				});
+				const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, group.id)
+				this.chatStore.remove(convKey);
+				this.$message.success(`您已退出'${group.name}'`);
+				this.reset();
+
 			})
 		},
 		async onSendMessage(group) {

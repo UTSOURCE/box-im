@@ -77,8 +77,17 @@ export default {
 			this.$refs.modal.open({
 				title: '确认删除',
 				content: `确认删除'${conv.showName}'的聊天记录?`,
-				success: () => {
-					this.chatStore.remove(conv.key);
+				success: async () => {
+					if (this.isPrivate(conv) || this.isGroup(conv)) {
+						const data = { chatId: conv.targetId }
+						const chatTypeText = this.isPrivate(conv) ? "private" : "group";
+						await this.$http({
+							url: `/message/${chatTypeText}/deleteChat`,
+							method: 'delete',
+							data: data
+						});
+					}
+					await this.chatStore.remove(conv.key);
 				}
 			});
 		},
@@ -204,6 +213,7 @@ export default {
 		this.refreshUnreadBadge();
 	}
 }
+
 </script>
 
 <style lang="scss">
@@ -274,4 +284,5 @@ export default {
 		height: 100%;
 	}
 }
+
 </style>

@@ -1,6 +1,8 @@
 package com.bx.implatform.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.bx.implatform.dto.ChatDeleteDTO;
+import com.bx.implatform.dto.MessageDeleteDTO;
 import com.bx.implatform.dto.PrivateMessageDTO;
 import com.bx.implatform.dto.PrivateMessageHistoryDTO;
 import com.bx.implatform.entity.PrivateMessage;
@@ -58,6 +60,17 @@ public interface PrivateMessageService extends IService<PrivateMessage> {
      */
     void saveMessage(PrivateMessage message);
 
+    /**
+     * 删除消息
+     * @param dto
+     */
+    void deleteMessage(MessageDeleteDTO dto);
+
+    /**
+     * 删除会话
+     * @param dto dto
+     */
+    void deleteChat(ChatDeleteDTO dto);
 
     /**
      * 加载历史消息

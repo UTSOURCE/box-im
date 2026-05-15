@@ -49,7 +49,23 @@ export default {
       this.chatStore.setActive(conv.key);
     },
     onDelItem(conv) {
-      this.chatStore.remove(conv.key);
+      const tip = `删除后记录将清空,确认删除与'${conv.showName}'的聊天 ?`;
+      this.$confirm(tip, '删除聊天', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(async () => {
+        if (this.isPrivate(conv) || this.isGroup(conv)) {
+          const data = { chatId: conv.targetId }
+          const chatTypeText = this.isPrivate(conv) ? "private" : "group";
+          await this.$http({
+            url: `/message/${chatTypeText}/deleteChat`,
+            method: 'delete',
+            data: data
+          });
+        }
+        await this.chatStore.remove(conv.key);
+      });
     },
     onShowInfo(conv) {
       if (this.isPrivate(conv)) {

@@ -96,16 +96,22 @@ export default {
 				confirmButtonText: '确定',
 				cancelButtonText: '取消',
 				type: 'warning'
-			}).then(() => {
-				this.$http({
+			}).then(async () => {
+				await this.$http({
 					url: `/friend/delete/${friend.id}`,
 					method: 'delete'
-				}).then(async () => {
-					const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.PRIVATE, friend.id)
-					this.friendStore.removeFriend(friend.id);
-					await this.chatStore.remove(convKey);
-					this.$message.success("删除好友成功");
 				})
+				this.friendStore.removeFriend(friend.id);
+				// 删除会话
+				const data = { chatId: friend.id }
+				await this.$http({
+					url: `/message/private/deleteChat`,
+					method: 'delete',
+					data: data
+				});
+				const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.PRIVATE, friend.id)
+				await this.chatStore.remove(convKey);
+				this.$message.success("删除好友成功");
 			})
 		},
 		onAddFriend(user) {

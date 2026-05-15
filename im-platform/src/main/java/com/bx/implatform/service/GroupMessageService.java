@@ -1,8 +1,10 @@
 package com.bx.implatform.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.bx.implatform.dto.ChatDeleteDTO;
 import com.bx.implatform.dto.GroupMessageDTO;
 import com.bx.implatform.dto.GroupMessageHistoryDTO;
+import com.bx.implatform.dto.MessageDeleteDTO;
 import com.bx.implatform.entity.GroupMessage;
 import com.bx.implatform.vo.GroupMessageVO;
 
@@ -56,6 +58,19 @@ public interface GroupMessageService extends IService<GroupMessage> {
      */
     List<GroupMessageVO> loadHistoryMessage(GroupMessageHistoryDTO dto);
 
+    /**
+     * 删除消息
+     *
+     * @param dto
+     */
+    void deleteMessage(MessageDeleteDTO dto);
+
+    /**
+     * 删除会话
+     *
+     * @param dto dto
+     */
+    void deleteChat(ChatDeleteDTO dto);
 
     /**
      * 保存消息

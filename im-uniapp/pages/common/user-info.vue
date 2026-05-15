@@ -92,20 +92,28 @@ export default {
 			})
 		},
 		onDelFriend() {
+			const userInfo = this.userInfo;
+			const convKey = this.convKey;
 			this.$refs.modal.open({
 				title: "确认删除",
-				content: `确认删除 '${this.userInfo.nickName}',并删除聊天记录吗?`,
-				success: () => {
-					this.$http({
-						url: `/friend/delete/${this.userInfo.id}`,
+				content: `确认删除 '${userInfo.nickName}',并删除聊天记录吗?`,
+				success: async () => {
+					await this.$http({
+						url: `/friend/delete/${userInfo.id}`,
 						method: 'delete'
-					}).then((data) => {
-						this.friendStore.removeFriend(this.userInfo.id);
-						this.chatStore.removePrivateChat(this.userInfo.id);
-						uni.showToast({
-							title: `与 '${this.userInfo.nickName}'的好友关系已解除`,
-							icon: 'none'
-						})
+					})
+					this.friendStore.removeFriend(userInfo.id);
+					// 删除会话
+					const data = { chatId: userInfo.id }
+					await this.$http({
+						url: `/message/private/deleteChat`,
+						method: 'delete',
+						data: data
+					});
+					this.chatStore.remove(convKey);
+					uni.showToast({
+						title: `与 '${userInfo.nickName}'的好友关系已解除`,
+						icon: 'none'
 					})
 				}
 			})
@@ -115,7 +123,14 @@ export default {
 				title: '清空聊天记录',
 				content: `确认删除与'${this.userInfo.nickName}'的聊天记录吗?`,
 				confirmText: '确认',
-				success: () => {
+				success: async () => {
+					// 删除会话
+					const data = { chatId: this.userInfo.id }
+					await this.$http({
+						url: `/message/private/deleteChat`,
+						method: 'delete',
+						data: data
+					});
 					this.chatStore.cleanMessage(this.convKey);
 					uni.showToast({
 						title: `您清空了'${this.userInfo.nickName}'的聊天记录`,

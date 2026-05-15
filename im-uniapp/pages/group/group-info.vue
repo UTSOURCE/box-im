@@ -138,21 +138,24 @@ export default {
 			this.$refs.modal.open({
 				title: '确认退出?',
 				content: `退出群聊后将不再接受群里的消息，确认退出吗?`,
-				success: () => {
-					this.$http({
+				success: async () => {
+					await this.$http({
 						url: `/group/quit/${groupId}`,
 						method: 'DELETE'
-					}).then(() => {
-						uni.showToast({
-							title: `您退出了群聊'${groupName}'`,
-							icon: "none"
-						})
-						setTimeout(() => {
-							uni.switchTab({ url: "/pages/group/group" });
-							this.groupStore.removeGroup(groupId);
-							this.chatStore.remove(convKey);
-						}, 1500)
+					})
+					this.groupStore.removeGroup(groupId);
+					const data = { chatId: groupId }
+					await this.$http({
+						url: `/message/group/deleteChat`,
+						method: 'delete',
+						data: data
 					});
+					this.chatStore.remove(convKey);
+					uni.showToast({
+						title: `您退出了群聊'${groupName}'`,
+						icon: "none"
+					})
+					setTimeout(() => uni.switchTab({ url: "/pages/group/group" }), 1500)
 				}
 			});
 		},
@@ -205,7 +208,14 @@ export default {
 				title: '清空聊天记录',
 				content: `确认删除群聊'${this.group.name}'的聊天记录吗?`,
 				confirmText: '确认',
-				success: () => {
+				success: async () => {
+					// 删除会话
+					const data = { chatId: this.group.id }
+					await this.$http({
+						url: `/message/group/deleteChat`,
+						method: 'delete',
+						data: data
+					});
 					this.chatStore.cleanMessage(this.convKey);
 					uni.showToast({
 						title: `您清空了'${this.group.name}'的聊天记录`,
@@ -252,7 +262,7 @@ export default {
 		},
 		groupMembers() {
 			const group = this.groupStore.findGroup(this.groupId)
-			return group.members;
+			return group.members.filter(m => !m.quit);
 		}
 	},
 	onLoad(options) {

@@ -441,8 +441,20 @@ export default {
 				confirmButtonText: '确定',
 				cancelButtonText: '取消',
 				type: 'warning'
-			}).then(() => {
-				this.chatStore.deleteMessage(this.conversation.key, message);
+			}).then(async () => {
+				const convKey = this.conversation.key;
+				if (message.id) {
+					const data = {
+						chatId: this.conversation.targetId,
+						messageIds: [message.id]
+					}
+					await this.$http({
+						url: `/message/${this.chatTypeText(this.conversation)}/deleteMessage`,
+						method: 'delete',
+						data: data
+					});
+				}
+				this.chatStore.deleteMessage(convKey, message);
 			});
 		},
 		recallMessage(message) {

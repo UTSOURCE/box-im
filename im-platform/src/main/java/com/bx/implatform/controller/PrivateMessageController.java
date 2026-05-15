@@ -1,5 +1,7 @@
 package com.bx.implatform.controller;
 
+import com.bx.implatform.dto.ChatDeleteDTO;
+import com.bx.implatform.dto.MessageDeleteDTO;
 import com.bx.implatform.dto.PrivateMessageDTO;
 import com.bx.implatform.dto.PrivateMessageHistoryDTO;
 import com.bx.implatform.result.Result;
@@ -58,6 +60,20 @@ public class PrivateMessageController {
         return ResultUtils.success(privateMessageService.getMaxReadedId(userId, friendId));
     }
 
+
+    @DeleteMapping("/deleteMessage")
+    @Operation(summary = "删除消息", description = "根据消息id列表删除消息")
+    public Result deleteMessage(@Valid @RequestBody MessageDeleteDTO dto) {
+        privateMessageService.deleteMessage(dto);
+        return ResultUtils.success();
+    }
+
+    @DeleteMapping("/deleteChat")
+    @Operation(summary = "删除会话", description = "删除会话以及会话中的所有消息")
+    public Result deleteChat(@Valid @RequestBody ChatDeleteDTO dto) {
+        privateMessageService.deleteChat(dto);
+        return ResultUtils.success();
+    }
 
     @PostMapping("/history")
     @Operation(summary = "查询历史消息", description = "查询历史消息")
