@@ -229,7 +229,6 @@ export default {
 			return this.$emo.transform(text, 'emoji-normal')
 		},
 		imageStyle() {
-			console.log(uni.getSystemInfo())
 			let maxSize = uni.getSystemInfoSync().windowWidth * 0.6;
 			let minSize = uni.getSystemInfoSync().windowWidth * 0.2;
 			let width = this.contentData.width;
