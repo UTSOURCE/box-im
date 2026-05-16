@@ -143,14 +143,14 @@ export default {
 						url: `/group/quit/${groupId}`,
 						method: 'DELETE'
 					})
-					this.groupStore.removeGroup(groupId);
+					await this.groupStore.removeGroup(groupId);
 					const data = { chatId: groupId }
 					await this.$http({
 						url: `/message/group/deleteChat`,
 						method: 'delete',
 						data: data
 					});
-					this.chatStore.remove(convKey);
+					await this.chatStore.remove(convKey);
 					uni.showToast({
 						title: `您退出了群聊'${groupName}'`,
 						icon: "none"
@@ -166,23 +166,17 @@ export default {
 			this.$refs.modal.open({
 				title: '确认解散?',
 				content: `确认要解散群聊'${groupName}'吗?`,
-				success: (res) => {
-					if (res.cancel)
-						return;
-					this.$http({
+				success: async () => {
+					await this.$http({
 						url: `/group/delete/${groupId}`,
 						method: 'delete'
-					}).then(() => {
-						uni.showToast({
-							title: `您解散了群聊'${groupName}'`,
-							icon: "none"
-						})
-						setTimeout(() => {
-							uni.switchTab({ url: "/pages/group/group" });
-							this.groupStore.removeGroup(groupId);
-							this.chatStore.remove(convKey);
-						}, 1500)
-					});
+					})
+					await this.groupStore.removeGroup(groupId);
+					uni.showToast({
+						title: `您解散了群聊'${groupName}'`,
+						icon: "none"
+					})
+					setTimeout(() => uni.switchTab({ url: "/pages/group/group" }), 1500)
 				}
 			});
 		},
@@ -204,21 +198,24 @@ export default {
 			})
 		},
 		onCleanMessage() {
+			const convKey = this.convKey;
+			const groupId = this.groupId;
+			const groupName = this.group.name;
 			this.$refs.modal.open({
 				title: '清空聊天记录',
-				content: `确认删除群聊'${this.group.name}'的聊天记录吗?`,
+				content: `确认删除群聊'${groupName}'的聊天记录吗?`,
 				confirmText: '确认',
 				success: async () => {
 					// 删除会话
-					const data = { chatId: this.group.id }
+					const data = { chatId: groupId }
 					await this.$http({
 						url: `/message/group/deleteChat`,
 						method: 'delete',
 						data: data
 					});
-					this.chatStore.cleanMessage(this.convKey);
+					await this.chatStore.cleanMessage(convKey);
 					uni.showToast({
-						title: `您清空了'${this.group.name}'的聊天记录`,
+						title: `您清空了'${groupName}'的聊天记录`,
 						icon: 'none'
 					})
 				}

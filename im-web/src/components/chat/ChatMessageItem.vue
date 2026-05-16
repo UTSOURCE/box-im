@@ -176,13 +176,12 @@ export default {
 			items.push({
 				key: 'DELETE',
 				name: '删除',
-				icon: 'el-icon-delete'
+				danger: true
 			});
 			if (this.message.selfSend && this.message.id > 0) {
 				items.push({
 					key: 'RECALL',
-					name: '撤回',
-					icon: 'el-icon-refresh-left'
+					name: '撤回'
 				});
 			}
 			return items;

@@ -153,7 +153,6 @@ export default {
         this.$message.success(`您已退出'${group.name}'`);
         this.reset();
       })
-
     },
     onScroll(e) {
       const scrollbar = e.target;

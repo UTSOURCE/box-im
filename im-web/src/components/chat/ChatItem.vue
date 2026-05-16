@@ -92,7 +92,7 @@ export default {
 			items.push({
 				key: 'DELETE',
 				name: '删除聊天',
-				color: '#F56C6C'
+				danger: true
 			})
 			return items;
 		},

@@ -3,7 +3,10 @@ package com.bx.imserver.netty;
 import cn.hutool.core.util.StrUtil;
 import com.bx.imcommon.contant.IMRedisKey;
 import com.bx.imcommon.enums.IMCmdType;
+import com.bx.imcommon.enums.IMEventType;
 import com.bx.imcommon.model.IMSendInfo;
+import com.bx.imcommon.model.IMUserEvent;
+import com.bx.imcommon.model.IMUserInfo;
 import com.bx.imcommon.mq.RedisMQTemplate;
 import com.bx.imserver.constant.ChannelAttrKey;
 import com.bx.imserver.netty.processor.AbstractMessageProcessor;
@@ -77,6 +80,12 @@ public class IMChannelHandler extends SimpleChannelInboundHandler<IMSendInfo> {
             UserChannelCtxMap.removeChannelCtx(userId, terminal);
             // 用户下线
             redisTemplate.delete(key);
+            // 推送用户下线事件给业务层
+            IMUserEvent event = new IMUserEvent();
+            event.setEventType(IMEventType.OFFLINE.code());
+            event.setUserInfo(new IMUserInfo(userId, terminal));
+            key = IMRedisKey.IM_USER_EVENT_QUEUE;
+            redisTemplate.opsForList().rightPush(key, event);
             log.info("断开连接,userId:{},终端类型:{},{}", userId, terminal, ctx.channel().id().asLongText());
         }
     }

@@ -1,12 +1,13 @@
 <template>
 	<div v-if="show" class="right-menu-mask" @click.stop="close()" @contextmenu.prevent="close()">
 		<div class="right-menu" :style="{ 'left': pos.x + 'px', 'top': pos.y + 'px' }">
-			<el-menu text-color="#333333">
-				<el-menu-item v-for="(item) in items" :key="item.key" :title="item.name"
-					@click.native.stop="onSelectMenu(item)">
-					<span>{{ item.name }}</span>
-				</el-menu-item>
-			</el-menu>
+			<div class="menu-container">
+				<div v-for="(item) in items" :key="item.key" class="menu-item" :class="{ 'danger': item.danger }"
+					@click.stop="onSelectMenu(item)">
+					<i v-if="item.icon" :class="item.icon" class="menu-icon"></i>
+					<span class="menu-text">{{ item.name }}</span>
+				</div>
+			</div>
 		</div>
 	</div>
 </template>
@@ -40,8 +41,8 @@ export default {
 			this.close();
 		},
 		rejustPos() {
-			let menuH = this.items.length * 36;
-			let menuW = 100;
+			let menuH = this.items.length * 40 + 16; // 增加内边距
+			let menuW = 140; // 增加宽度
 			if (this.pos.y > window.innerHeight - menuH) {
 				this.pos.y = window.innerHeight - menuH;
 			}
@@ -53,7 +54,7 @@ export default {
 }
 </script>
 
-<style lang="scss" scoped>
+<style lang="scss">
 .right-menu-mask {
 	position: fixed;
 	left: 0;
@@ -67,22 +68,57 @@ export default {
 
 .right-menu {
 	position: fixed;
-	border-radius: 8px;
+	border-radius: 12px;
 	overflow: hidden;
-	box-shadow: var(--im-box-shadow-light);
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+	background: rgba(255, 255, 255, 0.95);
+	backdrop-filter: blur(20px);
+	border: 1px solid rgba(255, 255, 255, 0.2);
+	z-index: 10000;
 
-	.el-menu {
-		border-radius: 4px;
-		overflow: hidden;
+	.menu-container {
+		padding: 8px 0;
+		min-width: 120px;
 
-		.el-menu-item {
-			height: 36px;
-			line-height: 36px;
-			min-width: 100px;
-			text-align: center;
+		.menu-item {
+			display: flex;
+			align-items: center;
+			padding: 8px 16px;
+			cursor: pointer;
+			transition: all 0.2s ease;
+			position: relative;
+			font-size: 14px;
+			color: var(--im-text-color);
 
 			&:hover {
-				background-color: var(--im-background-active);
+				background: var(--im-background-active);
+				color: var(--im-color-primary);
+			}
+
+			&.danger {
+				color: var(--im-color-danger);
+
+				&:hover {
+					background: rgba(245, 108, 108, 0.1);
+					color: var(--im-color-danger);
+				}
+
+				&:active {
+					background: rgba(245, 108, 108, 0.2);
+					transform: scale(0.98);
+				}
+			}
+
+			.menu-icon {
+				font-size: 16px;
+				margin-right: 8px;
+				width: 16px;
+				text-align: center;
+			}
+
+			.menu-text {
+				flex: 1;
+				font-weight: 500;
 			}
 		}
 	}

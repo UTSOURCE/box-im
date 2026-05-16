@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.bx.imclient.IMClient;
 import com.bx.imcommon.enums.IMTerminalType;
+import com.bx.imcommon.model.IMBatchPrivateMessage;
 import com.bx.imcommon.model.IMPrivateMessage;
 import com.bx.imcommon.model.IMUserInfo;
 import com.bx.implatform.annotation.RedisLock;
@@ -132,23 +133,23 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
 
     @Override
     public void sendOnlineStatus(Long userId, Integer terminal) {
-//        List<Long> fids = loadAllFriendIds(userId);
-//        UserOnlineVO vo = new UserOnlineVO();
-//        vo.setUserId(userId);
-//        vo.setTerminal(terminal);
-//        vo.setOnline(imClient.isOnline(userId, IMTerminalType.fromCode(terminal)));
-//        // 广播给所有好友
-//        PrivateMessageVO msgInfo = new PrivateMessageVO();
-//        msgInfo.setSendId(userId);
-//        msgInfo.setType(MessageType.FRIEND_ONLINE.code());
-//        msgInfo.setContent(JSON.toJSONString(vo));
-//        IMBatchPrivateMessage<PrivateMessageVO> sendMessage = new IMBatchPrivateMessage<>();
-//        sendMessage.setSender(new IMUserInfo(userId, IMTerminalType.UNKNOW.code()));
-//        sendMessage.setRecvIds(fids);
-//        sendMessage.setData(msgInfo);
-//        sendMessage.setSendResult(false);
-//        sendMessage.setSendToSelf(false);
-//        imClient.sendBatchPrivateMessage((sendMessage));
+        List<Long> fids = loadAllFriendIds(userId);
+        UserOnlineVO vo = new UserOnlineVO();
+        vo.setUserId(userId);
+        vo.setTerminal(terminal);
+        vo.setOnline(imClient.isOnline(userId, IMTerminalType.fromCode(terminal)));
+        // 广播给所有好友
+        PrivateMessageVO msgInfo = new PrivateMessageVO();
+        msgInfo.setSendId(userId);
+        msgInfo.setType(MessageType.FRIEND_ONLINE.code());
+        msgInfo.setContent(JSON.toJSONString(vo));
+        IMBatchPrivateMessage<PrivateMessageVO> sendMessage = new IMBatchPrivateMessage<>();
+        sendMessage.setSender(new IMUserInfo(userId, IMTerminalType.UNKNOW.code()));
+        sendMessage.setRecvIds(fids);
+        sendMessage.setData(msgInfo);
+        sendMessage.setSendResult(false);
+        sendMessage.setSendToSelf(false);
+        imClient.sendBatchPrivateMessage((sendMessage));
     }
 
     @Override
@@ -285,6 +286,15 @@ public class FriendServiceImpl extends ServiceImpl<FriendMapper, Friend> impleme
             redisTemplate.opsForValue().set(key, version);
             return version;
         }
+    }
+
+    List<Long> loadAllFriendIds(Long userId) {
+        LambdaQueryWrapper<Friend> wrapper = Wrappers.lambdaQuery();
+        wrapper.eq(Friend::getUserId, userId);
+        wrapper.eq(Friend::getDeleted, false);
+        wrapper.select(Friend::getFriendId);
+        List<Friend> friends = this.list(wrapper);
+        return friends.stream().map(Friend::getFriendId).collect(Collectors.toList());
     }
 
     private FriendVO convert(Friend f) {

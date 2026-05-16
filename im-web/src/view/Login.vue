@@ -87,22 +87,17 @@ export default {
 						url: "/login",
 						method: 'post',
 						data: this.loginForm
+					}).then((data) => {
+						// 保存登录信息到本地，兼容新版逻辑
+						localStorage.setItem('isAutoLogin', this.isAutoLogin);
+						localStorage.setItem('username', this.loginForm.userName);
+						localStorage.setItem('password', this.loginForm.password);
+						// 保存token
+						sessionStorage.setItem("accessToken", data.accessToken);
+						sessionStorage.setItem("refreshToken", data.refreshToken);
+						this.$message.success("登录成功");
+						this.$router.push("/home/chat");
 					})
-						.then((data) => {
-							// 保存密码到cookie(不安全)
-							this.setCookie('username', this.loginForm.userName);
-							this.setCookie('password', this.loginForm.password);
-							// 保存登录信息到本地，兼容新版逻辑
-							localStorage.setItem('isAutoLogin', this.isAutoLogin);
-							localStorage.setItem('username', this.loginForm.userName);
-							localStorage.setItem('password', this.loginForm.password);
-							// 保存token
-							sessionStorage.setItem("accessToken", data.accessToken);
-							sessionStorage.setItem("refreshToken", data.refreshToken);
-							this.$message.success("登录成功");
-							this.$router.push("/home/chat");
-						})
-
 				}
 			});
 		},
@@ -117,17 +112,13 @@ export default {
 		setCookie(name, value) {
 			document.cookie = name + "=" + escape(value);
 		}
-
 	},
 	mounted() {
-		// 兼容旧版本 cookie 数据
-		this.loginForm.userName = this.getCookie("username");
-		this.loginForm.password = this.getCookie("password");
 		// 加载本地自动登录配置
 		if (localStorage.getItem("isAutoLogin") != null) {
 			this.isAutoLogin = JSON.parse(localStorage.getItem("isAutoLogin"));
-			this.loginForm.userName = localStorage.getItem("username") || this.loginForm.userName;
-			this.loginForm.password = localStorage.getItem("password") || this.loginForm.password;
+			this.loginForm.userName = localStorage.getItem("username") || '';
+			this.loginForm.password = localStorage.getItem("password") || '';
 			if (this.isAutoLogin && this.loginForm.userName && this.loginForm.password) {
 				this.submitForm('loginForm');
 			}

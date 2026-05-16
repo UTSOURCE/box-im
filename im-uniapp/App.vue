@@ -495,28 +495,30 @@ export default {
 				this.exit();
 			}
 		},
-		insertGroupMessage(group, msg) {
+		async insertGroupMessage(group, m) {
+			const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, group.id);
+			const chatInfo = {
+				type: this.$enums.CONVERSATION_TYPE.GROUP,
+				targetId: group.id,
+				showName: group.showGroupName,
+				headImage: group.headImageThumb,
+				isDnd: group.isDnd
+			};
+			// 打开会话
+			await this.chatStore.openChat(chatInfo);
 			// 插入消息
-			if (msgType.isNormal(msg.type) || msgType.isTip(msg.type) || msgType.isAction(msg.type)) {
-				let chatInfo = {
-					type: 'GROUP',
-					targetId: group.id,
-					showName: group.showGroupName,
-					headImage: group.headImageThumb,
-					isDnd: group.isDnd
-				};
-				// 打开会话
-				this.chatStore.openChat(chatInfo);
-				// 插入消息
-				this.chatStore.insertMessage(msg, chatInfo);
-				// 播放提示音
-				if (!group.isDnd && !this.chatStore.loading &&
-					!msg.selfSend && msgType.isNormal(msg.type) &&
-					msg.status != enums.MESSAGE_STATUS.READED) {
-					this.playAudioTip();
-				}
+			await this.chatStore.insertMessage(convKey, m);
+			// 通知chat-box组件
+			if (this.chatStore.isActive(convKey)) {
+				uni.$emit("newMessage", m);
 			}
-
+			// 提示音和消息提醒
+			if (!group.isDnd && !this.chatStore.loading &&
+				!m.selfSend && this.$msgType.isNormal(m.type) &&
+				m.status != this.$enums.MESSAGE_STATUS.READED) {
+				// 播放提示音
+				this.playAudioTip();
+			}
 		},
 		loadFriendInfo(id, callback) {
 			let friend = this.friendStore.findFriend(id);

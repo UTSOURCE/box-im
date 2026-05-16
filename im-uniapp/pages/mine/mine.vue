@@ -14,12 +14,12 @@
 					</view>
 					<view class="info-text">
 						<text class="label-text">用户名:</text>
-						<text class="content-text">	{{ userInfo.userName }}	</text>
+						<text class="content-text"> {{ userInfo.userName }} </text>
 					</view>
 					<view class="info-text">
 						<view>
 							<text class="label-text">签名:</text>
-							<text class="content-text">	{{ userInfo.signature }}</text>
+							<text class="content-text"> {{ userInfo.signature }}</text>
 						</view>
 					</view>
 				</view>
@@ -27,11 +27,12 @@
 			</view>
 		</uni-card>
 		<bar-group>
-			<arrow-bar title="修改密码" icon="icon-modify-pwd"  @tap="onModifyPassword()"></arrow-bar>
+			<arrow-bar title="修改密码" icon="icon-modify-pwd" @tap="onModifyPassword()"></arrow-bar>
 		</bar-group>
 		<bar-group>
 			<btn-bar title="退出登录" type="danger" @tap="onQuit()"></btn-bar>
 		</bar-group>
+		<popup-modal ref="modal"></popup-modal>
 	</view>
 </template>
 
@@ -52,12 +53,10 @@ export default {
 			})
 		},
 		onQuit() {
-			uni.showModal({
+			this.$refs.modal.open({
 				title: '确认退出?',
 				success: (res) => {
-					if (res.confirm) {
-						getApp().$vm.exit()
-					}
+					getApp().$vm.exit()
 				}
 			});
 		}
@@ -68,6 +67,7 @@ export default {
 		}
 	}
 }
+
 </script>
 
 <style scoped lang="scss">
@@ -95,7 +95,6 @@ export default {
 			.label-text {
 				font-size: $im-font-size-small;
 				color: $im-text-color-light;
-
 			}
 
 			.content-text {
@@ -104,7 +103,7 @@ export default {
 				margin-left: 10rpx;
 				word-break: break-all;
 				overflow: hidden;
-			}	
+			}
 
 			.info-primary {
 				display: flex;
@@ -135,6 +134,6 @@ export default {
 			left: 30rpx;
 		}
 	}
-
 }
+
 </style>
