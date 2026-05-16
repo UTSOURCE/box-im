@@ -97,17 +97,6 @@ class ImIndexedDB extends DB {
 		return this.db.messages.where("convKey").equals(convKey).toArray();
 	}
 
-	// 查询引用了这条消息的消息
-	async findQuoteMessages(message) {
-		const lower = [message.convKey, message.seqNo, message.sendTime];
-		const upper = [message.convKey, Infinity, Infinity];
-		return await this.db.messages
-			.where('[convKey+seqNo+sendTime]')
-			.between(lower, upper)
-			.and(item => item.quoteMessage && item.quoteMessage.id == message.id)
-			.toArray();
-	}
-
 	async findAllFriends() {
 		return await this.db.friends.toArray();
 	}

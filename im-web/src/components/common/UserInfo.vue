@@ -59,19 +59,20 @@ export default {
 		close() {
 			this.show = false;
 		},
-		onSendMessage() {
-			let user = this.user;
-			let chat = {
-				type: 'PRIVATE',
+		async onSendMessage() {
+			const user = this.user;
+			const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.PRIVATE, user.id)
+			const chatInfo = {
+				key: convKey,
+				type: this.$enums.CONVERSATION_TYPE.PRIVATE,
 				targetId: user.id,
 				showName: user.nickName,
-				headImage: user.headImageThumb
+				headImage: user.headImageThumb,
+				isDnd: this.friendInfo.isDnd
 			};
-			if (this.isFriend) {
-				chat.isDnd = this.friendInfo.isDnd;
-			}
-			this.chatStore.openChat(chat);
-			this.chatStore.setActiveChat(0);
+			await this.chatStore.openChat(chatInfo);
+			await this.chatStore.moveTop(convKey)
+			this.chatStore.setActive(convKey);
 			if (this.$route.path != "/home/chat") {
 				this.$router.push("/home/chat");
 			}

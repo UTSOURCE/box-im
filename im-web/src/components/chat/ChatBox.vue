@@ -67,6 +67,10 @@
 										@click="notifySend()">发送</el-button>
 								</div>
 							</div>
+							<div class="chat-editer-mask" v-if="notAllowInputTip">
+								<span class="icon el-icon-warning"></span>
+								<span>{{ notAllowInputTip }}</span>
+							</div>
 						</el-footer>
 					</el-container>
 					<el-aside class="side-box" width="320px" v-if="showSide">
@@ -279,12 +283,10 @@ export default {
 			this.showRecord = false;
 		},
 		showPrivateVideo(mode) {
-			// 检查是否被封禁
-			if (this.isBanned) {
-				this.showBannedTip();
+			if (this.notAllowInputTip) {
+				this.$message.warning(this.notAllowInputTip);
 				return;
 			}
-
 			let rtcInfo = {
 				mode: mode,
 				isHost: true,
@@ -402,17 +404,11 @@ export default {
 				message.atUserIds = atUserIds;
 				message.receipt = this.isReceipt;
 			}
-			// 引用消息
-			if (this.quoteMessage) {
-				message.quoteMessageId = this.quoteMessage.id
-			}
 			// 本地消息
 			const localMessage = this.buildLocalMessage(message);
-			localMessage.quoteMessage = this.quoteMessage;
 			await this.insertMessage(localMessage);
 			// 清空标志
 			this.isReceipt = false;
-			this.quoteMessage = null;
 			// 发送
 			await this.processSendMessage(this.conversation, message, localMessage);
 		},
@@ -658,9 +654,6 @@ export default {
 			if (this.isGroup) {
 				m.readedCount = 0;
 			}
-			if (message.quoteMessageId) {
-				m.quoteMessage = this.quoteMessage;
-			}
 			return m;
 		},
 		getImageSize(file) {
@@ -748,6 +741,20 @@ export default {
 		},
 		maxMessageId() {
 			return this.conversation.maxMessageId;
+		},
+		notAllowInputTip() {
+			if (this.isGroup) {
+				if (this.group.dissolve) {
+					return '群聊已解散';
+				} else if (this.group.quit) {
+					return '您已不在群聊中';
+				} else if (this.group.isBanned) {
+					return '群聊已被封禁' + (this.group.reason ? '，原因：' + this.group.reason : '');
+				}
+			} else if (this.userInfo.isBanned) {
+				return '对方账号已被封禁' + (this.userInfo.reason ? '，原因：' + this.userInfo.reason : '');
+			}
+			return '';
 		}
 	},
 	watch: {
@@ -875,6 +882,7 @@ export default {
 		}
 
 		.im-chat-footer {
+			position: relative;
 			display: flex;
 			flex-direction: column;
 			padding: 0;
@@ -936,6 +944,28 @@ export default {
 					position: absolute;
 					bottom: 4px;
 					right: 6px;
+				}
+			}
+
+			.chat-editer-mask {
+				position: absolute;
+				top: 0;
+				left: 0;
+				width: 100%;
+				height: 100%;
+				background: #f8f8f8d0;
+				font-size: var(--im-font-size-large);
+				color: var(--im-text-color-light);
+				display: flex;
+				justify-content: center;
+				align-items: center;
+				border-radius: 10px;
+				border: 1px solid #ddd;
+				z-index: 10;
+
+				.icon {
+					font-size: var(--im-font-size-larger);
+					margin-right: 3px;
 				}
 			}
 		}

@@ -140,11 +140,9 @@ export default {
 				key: convKey,
 				type: this.$enums.CONVERSATION_TYPE.PRIVATE,
 				targetId: friend.id,
-				showName: friend.showNickName,
+				showName: friend.nickName,
 				headImage: friend.headImage,
-				companyName: friend.companyName,
-				isDnd: friend.isDnd,
-				isTop: friend.isTop
+				isDnd: friend.isDnd
 			};
 			await this.chatStore.openChat(chatInfo);
 			await this.chatStore.moveTop(convKey);

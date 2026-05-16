@@ -94,6 +94,7 @@ export default {
 			});
 			this.$eventBus.$on('openUserInfo', (user, pos) => {
 				// 打开用户卡片
+				console.log("this.$refs.userInfo:",this.$refs.userInfo)
 				this.$refs.userInfo.open(user, pos);
 			});
 			this.$eventBus.$on('openFullImage', url => {
@@ -313,17 +314,6 @@ export default {
 					// 会话提示语
 					conversation.lastContent = this.$msgUtil.previewContent(recallMessage);
 					conversation.sendNickName = "";
-					// 如果撤回的消息不在本次拉取的离线消息中，则有可能本地库也有消息引用了这条消息
-					if (!messageMap.has(recallMessageId)) {
-						const quoteMessages = await this.$db.findQuoteMessages(recallMessage);
-						// 被引用的消息内容改成"引用的消息已撤回"
-						quoteMessages.forEach((m1) => {
-							m1.quoteMessage.content = JSON.stringify({ key: 'tip.recall.quote' });
-							m1.quoteMessage.status = this.$enums.MESSAGE_STATUS.RECALL;
-							m1.quoteMessage.type = this.$enums.MESSAGE_TYPE.TIP_TEXT
-						})
-						tmpMessages.push(...quoteMessages);
-					}
 				} else {
 					// 会话列表内容
 					conversation.lastContent = this.$msgUtil.previewContent(m);
@@ -426,17 +416,6 @@ export default {
 					// 会话提示语
 					conversation.lastContent = this.$msgUtil.previewContent(recallMessage);
 					conversation.sendNickName = "";
-					// 如果撤回的消息不在本次拉取的离线消息中，则有可能本地库也有消息引用了这条消息
-					if (!messageMap.has(recallMessageId)) {
-						const quoteMessages = await this.$db.findQuoteMessages(recallMessage);
-						// 被引用的消息内容改成"引用的消息已撤回"
-						quoteMessages.forEach((m1) => {
-							m1.quoteMessage.content = JSON.stringify({ key: 'tip.recall.quote' });
-							m1.quoteMessage.status = this.$enums.MESSAGE_STATUS.RECALL;
-							m1.quoteMessage.type = this.$enums.MESSAGE_TYPE.TIP_TEXT
-						})
-						tmpMessages.push(...quoteMessages);
-					}
 				} else {
 					// 会话列表内容
 					conversation.lastContent = this.$msgUtil.previewContent(m);
@@ -450,14 +429,12 @@ export default {
 		},
 		pullPrivateOfflineMessage(minId) {
 			return this.$http({
-				url: "/message/private/loadOfflineMessage?minId=" + minId,
-				method: 'GET'
+				url: "/message/private/loadOfflineMessage?minId=" + minId
 			})
 		},
 		pullGroupOfflineMessage(minId) {
 			return this.$http({
-				url: "/message/group/loadOfflineMessage?minId=" + minId,
-				method: 'GET'
+				url: "/message/group/loadOfflineMessage?minId=" + minId
 			})
 		},
 		async handlePrivateMessage(m) {
@@ -537,7 +514,7 @@ export default {
 			}
 		},
 		async handleGroupMessage(m) {
-			console.log("handleGroupMessage:",m)
+			console.log("handleGroupMessage:", m)
 			// 标记这条消息是不是自己发的
 			m.selfSend = m.sendId == this.mine.id;
 			// 会话信息
@@ -602,14 +579,13 @@ export default {
 			}
 		},
 		async insertGroupMessage(group, m) {
-				const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, group.id);
+			const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, group.id);
 			const chatInfo = {
 				type: this.$enums.CONVERSATION_TYPE.GROUP,
 				targetId: group.id,
 				showName: group.showGroupName,
 				headImage: group.headImageThumb,
-				isDnd: group.isDnd,
-				isTop: group.isTop
+				isDnd: group.isDnd
 			};
 			// 打开会话
 			await this.chatStore.openChat(chatInfo);

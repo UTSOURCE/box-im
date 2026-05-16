@@ -106,12 +106,6 @@ class ImMemoryDB extends DB {
 			});
 	}
 
-	async findQuoteMessages(message) {
-		return this._convMessages(message.convKey).filter((m) => {
-			return m.quoteMessage && m.quoteMessage.id == message.id;
-		});
-	}
-
 	async findAllFriends() { return []; }
 
 	async saveFriends(friends) { }

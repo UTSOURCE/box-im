@@ -485,14 +485,6 @@ export default defineStore('chatStore', {
 			if (!message.selfSend && message.status != MESSAGE_STATUS.READED) {
 				conv.unreadCount++;
 			}
-			// 被引用的消息内容改成"引用的消息已撤回"
-			const quoteMessages = await getDB().findQuoteMessages(recallMessage);
-			quoteMessages.forEach((m1) => {
-				m1.quoteMessage.content = JSON.stringify({ key: 'tip.recall.quote' });
-				m1.quoteMessage.status = MESSAGE_STATUS.RECALL;
-				m1.quoteMessage.type = MESSAGE_TYPE.TIP_TEXT
-			})
-			batchMessages.push(...quoteMessages);
 			// 同步内存中的引用消息
 			if (this.isActive(convKey)) {
 				this.messages.forEach(m1 => {
@@ -500,11 +492,6 @@ export default defineStore('chatStore', {
 						m1.status = MESSAGE_STATUS.RECALL;
 						m1.content = recallMessageTip;
 						m1.type = MESSAGE_TYPE.TIP_TEXT;
-					}
-					if (m1.quoteMessage && m1.quoteMessage.id == recallMessageId) {
-						m1.quoteMessage.content = JSON.stringify({ key: 'tip.recall.quote' });
-						m1.quoteMessage.status = MESSAGE_STATUS.RECALL;
-						m1.quoteMessage.type = MESSAGE_TYPE.TIP_TEXT
 					}
 				})
 			}

@@ -49,6 +49,10 @@
 				</view>
 				<button v-if="!isEmpty || atUserIds.length" class="btn-send" type="primary"
 					@touchend.prevent="sendTextMessage()" size="mini">发送</button>
+				<view class="chat-editer-mask" v-if="notAllowInputTip">
+					<text class="icon iconfont icon-warning-circle-empty"></text>
+					<text>{{ notAllowInputTip }}</text>
+				</view>
 			</view>
 		</view>
 		<view class="chat-tab-bar">
@@ -187,12 +191,20 @@ export default {
 			}
 		},
 		onPriviteVideo() {
+			if (this.notAllowInputTip) {
+				uni.showToast({ title: this.notAllowInputTip, icon: 'none' });
+				return;
+			}
 			const friendInfo = encodeURIComponent(JSON.stringify(this.friend));
 			uni.navigateTo({
 				url: `/pages/chat/chat-private-video?mode=video&friend=${friendInfo}&isHost=true`
 			})
 		},
 		onPriviteVoice() {
+			if (this.notAllowInputTip) {
+				uni.showToast({ title: this.notAllowInputTip, icon: 'none' });
+				return;
+			}
 			const friendInfo = encodeURIComponent(JSON.stringify(this.friend));
 			uni.navigateTo({
 				url: `/pages/chat/chat-private-video?mode=voice&friend=${friendInfo}&isHost=true`
@@ -1007,6 +1019,20 @@ export default {
 		maxMessageId() {
 			return this.conversation.maxMessageId;
 		},
+		notAllowInputTip() {
+			if (this.isGroup) {
+				if (this.group.dissolve) {
+					return '群聊已解散';
+				} else if (this.group.quit) {
+					return '您已不在群聊中';
+				} else if (this.group.isBanned) {
+					return '群聊已被封禁' + (this.group.reason ? '，原因：' + this.group.reason : '');
+				}
+			} else if (this.userInfo.isBanned) {
+				return '对方账号已被封禁' + (this.userInfo.reason ? '，原因：' + this.userInfo.reason : '');
+			}
+			return '';
+		}
 	},
 	watch: {
 		loading: {
@@ -1190,6 +1216,7 @@ export default {
 		}
 
 		.send-bar {
+			position: relative;
 			display: flex;
 			align-items: center;
 			padding: 10rpx;
@@ -1230,6 +1257,31 @@ export default {
 
 			.btn-send {
 				margin: 5rpx;
+			}
+
+			.chat-editer-mask {
+				position: absolute;
+				top: 0;
+				left: 0;
+				width: 100%;
+				height: 100%;
+				background: $im-bg;
+				font-size: $im-font-size-small;
+				color: $im-text-color-light;
+				display: flex;
+				justify-content: center;
+				align-items: center;
+				word-break: break-all;
+				padding: 0 15rpx;
+				overflow: hidden;
+				border-radius: 10rpx;
+				box-sizing: border-box;
+				z-index: 10;
+
+				.icon {
+					font-size: 32rpx;
+					margin-right: 10rpx;
+				}
 			}
 		}
 	}
