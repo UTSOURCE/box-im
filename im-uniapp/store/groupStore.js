@@ -29,9 +29,6 @@ export default defineStore('groupStore', {
 				}
 			});
 		},
-		resetRtcInfo(groups) {
-			groups.forEach(group => group.rtcInfo = {})
-		},
 		resetMembers(groups) {
 			groups.forEach(group => group.members = [])
 		},
@@ -70,25 +67,6 @@ export default defineStore('groupStore', {
 			const group = this.findGroup(id);
 			group.isDnd = isDnd;
 			await getDB().saveGroup(toRaw(group));
-		},
-		async setTop(id, isTop) {
-			const group = this.findGroup(id);
-			group.isTop = isTop;
-			await getDB().saveGroup(toRaw(group));
-		},
-		async setMuted(id, isMuted) {
-			const group = this.findGroup(id);
-			group.isMuted = isMuted;
-			await getDB().saveGroup(toRaw(group));
-		},
-		async setAllMuted(id, isAllMuted) {
-			const group = this.findGroup(id);
-			group.isAllMuted = isAllMuted;
-			await getDB().saveGroup(toRaw(group));
-		},
-		setRtcInfo(id, rtcInfo) {
-			const group = this.findGroup(id);
-			group.rtcInfo = rtcInfo;
 		},
 		async refreshMember(id) {
 			const group = this.findGroup(id);
@@ -154,7 +132,6 @@ export default defineStore('groupStore', {
 			const version = Math.max(0, ...this.groups.map(g => g.version || 0));
 			const groups = await http({ url: '/group/list?version=' + version });
 			this.resetMembers(groups);
-			this.resetRtcInfo(groups);
 			await getDB().saveGroups(groups);
 			this.append(groups);
 		},
@@ -164,14 +141,13 @@ export default defineStore('groupStore', {
 				// 每日首次登录进行全量同步
 				const groups = await http({ url: '/group/list' });
 				this.resetMembers(groups);
-				this.resetRtcInfo(groups);
 				await getDB().syncAllGroups(groups);
 				this.init(groups);
 				console.log("全量同步群聊信息")
 			} else {
 				// 从本地数据库加载
 				const groups = await getDB().findAllGroups();
-				this.resetRtcInfo(groups);
+
 				this.init(groups);
 				// 从服务器增量拉取
 				await this.pullGroups();

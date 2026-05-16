@@ -79,7 +79,7 @@ export default {
       }
     },
     onTop(conv) {
-      this.chatStore.setTop(conv.key, true)
+      this.chatStore.setTop(conv.key, !conv.isTop)
     },
     onDnd(conv) {
       if (this.isPrivate(conv)) {

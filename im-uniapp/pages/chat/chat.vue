@@ -127,7 +127,7 @@ export default {
 			})
 		},
 		onTop(conv) {
-			this.chatStore.setTop(conv.key, true)
+			this.chatStore.setTop(conv.key, !conv.isTop)
 		},
 		isShow(conv) {
 			return !this.searchText || conv.showName.includes(this.searchText)
@@ -145,7 +145,7 @@ export default {
 			})
 			items.push({
 				key: 'TOP',
-				name: '置顶该聊天',
+				name: conv.isTop ? '取消置顶' : '置顶该聊天',
 			})
 			if (conv.isDnd) {
 				items.push({

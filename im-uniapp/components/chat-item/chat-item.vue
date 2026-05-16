@@ -19,6 +19,9 @@
 				<view v-if="conversation.isDnd" class="icon iconfont icon-dnd"></view>
 				<uni-badge v-else-if="conversation.unreadCount > 0" :max-num="99" :text="conversation.unreadCount" />
 			</view>
+			<view v-if="conversation.isTop" class="chat-top">
+				<text class="icon iconfont icon-top-message"></text>
+			</view>
 		</view>
 	</view>
 </template>
@@ -170,6 +173,26 @@ export default {
 
 			.icon {
 				font-size: $im-font-size;
+			}
+		}
+
+		.chat-top {
+			position: absolute;
+			top: 3rpx;
+			right: 3rpx;
+			width: 35rpx;
+			height: 35rpx;
+			background: linear-gradient(225deg, #ffffff50 25%, #00000060), $im-color-primary;
+			clip-path: polygon(0% 0%, 100% 100%, 100% 0%);
+			border-radius: 6rpx 0 6rpx 0;
+
+			.icon {
+				position: absolute;
+				top: 2rpx;
+				right: 0;
+				color: white;
+				text-align: right;
+				font-size: 20rpx;
 			}
 		}
 	}

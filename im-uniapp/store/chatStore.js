@@ -39,7 +39,7 @@ export default defineStore('chatStore', {
 			this.conversations = conversations;
 			this.conversationMap.clear();
 			this.conversations.forEach(conv => this.conversationMap.set(conv.key, conv));
-			this.refreshTopAndDnd();
+			this.refreshDnd();
 			this.startSortTimer();
 		},
 		append(conversations) {
@@ -59,7 +59,7 @@ export default defineStore('chatStore', {
 					this.hasMoreNextMessage = true;
 				}
 			})
-			this.refreshTopAndDnd();
+			this.refreshDnd();
 		},
 		setActive(convKey) {
 			const conv = this.conversationMap.get(convKey);
@@ -650,23 +650,20 @@ export default defineStore('chatStore', {
 		setLoading(loading) {
 			this.loading = loading;
 		},
-		refreshTopAndDnd() {
+		refreshDnd() {
 			// 更新会话置顶和免打扰状态
 			const friendStore = useFriendStore();
 			const groupStore = useGroupStore();
 			this.conversations.forEach(conv => {
 				if (conv.type == CONVERSATION_TYPE.PRIVATE) {
-					let friend = friendStore.findFriend(conv.targetId);
+					const friend = friendStore.findFriend(conv.targetId);
 					if (friend) {
 						conv.isDnd = friend.isDnd;
-						conv.isTop = friend.isTop;
-						conv.companyName = friend.companyName
 					}
 				} else if (conv.type == CONVERSATION_TYPE.GROUP) {
-					let group = groupStore.findGroup(conv.targetId);
+					const group = groupStore.findGroup(conv.targetId);
 					if (group) {
 						conv.isDnd = group.isDnd;
-						conv.isTop = group.isTop;
 					}
 				}
 			})

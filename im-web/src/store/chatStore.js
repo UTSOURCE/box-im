@@ -637,12 +637,12 @@ export default defineStore('chatStore', {
 			const groupStore = useGroupStore();
 			this.conversations.forEach(conv => {
 				if (conv.type == CONVERSATION_TYPE.PRIVATE) {
-					let friend = friendStore.findFriend(conv.targetId);
+					const friend = friendStore.findFriend(conv.targetId);
 					if (friend) {
 						conv.isDnd = friend.isDnd;
 					}
 				} else if (conv.type == CONVERSATION_TYPE.GROUP) {
-					let group = groupStore.findGroup(conv.targetId);
+					const group = groupStore.findGroup(conv.targetId);
 					if (group) {
 						conv.isDnd = group.isDnd;
 					}

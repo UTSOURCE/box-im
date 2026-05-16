@@ -11,6 +11,7 @@
 				<div class="chat-name-text">
 					<div>{{ conversation.showName }}</div>
 					<el-tag v-if="isGroup" type="primary" size="mini">群</el-tag>
+					<el-tag v-if="conversation.isTop" type="warning" size="mini">置顶</el-tag>
 				</div>
 				<div class="chat-time-text">{{ showTime }}</div>
 			</div>
@@ -76,7 +77,7 @@ export default {
 			let items = [];
 			items.push({
 				key: 'TOP',
-				name: '置顶'
+				name: this.conversation.isTop ? '取消置顶' : '置顶'
 			});
 			if (this.conversation.isDnd) {
 				items.push({
