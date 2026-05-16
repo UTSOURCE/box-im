@@ -62,6 +62,7 @@ import FullImage from '../components/common/FullImage.vue';
 import RtcPrivateVideo from '../components/rtc/RtcPrivateVideo.vue';
 import RtcPrivateAcceptor from '../components/rtc/RtcPrivateAcceptor.vue';
 import RtcGroupVideo from '../components/rtc/RtcGroupVideo.vue';
+import { clearLoginSession } from '../api/auth.js';
 
 export default {
 	components: {
@@ -624,8 +625,7 @@ export default {
 		onExit() {
 			this.unloadStore();
 			this.$wsApi.close(3000);
-			sessionStorage.removeItem("accessToken");
-			localStorage.setItem("isAutoLogin", false)
+			clearLoginSession(true);
 			this.$elm.setTitleTip("");
 			this.$db.close();
 			location.href = "/";

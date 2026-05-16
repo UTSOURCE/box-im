@@ -11,6 +11,7 @@ export default {
 		return {
 			isExit: false, // 是否已退出
 			audioTip: null,
+			lastPlayAudioTime: 0,
 			reconnecting: false, // 正在重连标志
 			privateMessagesBuffer: [],
 			groupMessagesBuffer: [],
@@ -554,10 +555,16 @@ export default {
 			this.unloadStore();
 		},
 		playAudioTip() {
-			// 音频播放无法成功
-			// this.audioTip = uni.createInnerAudioContext();
-			// this.audioTip.src =  "/static/audio/tip.wav";
-			// this.audioTip.play();
+			// 播放间隔必须大于1s
+			const interval = new Date().getTime() - this.lastPlayAudioTime;
+			if (this.userStore.userInfo.isAudioTip && interval > 1000) {
+				if (!this.audioTip) {
+					this.audioTip = uni.createInnerAudioContext();
+					this.audioTip.src = "/static/audio/tip.mp3";
+				}
+				this.lastPlayAudioTime = new Date().getTime();
+				this.audioTip.play();
+			}
 		},
 		refreshToken(loginInfo) {
 			return new Promise((resolve, reject) => {

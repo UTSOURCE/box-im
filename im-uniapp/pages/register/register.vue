@@ -152,7 +152,6 @@ export default {
 			}).then((loginInfo) => {
 				console.log("登录成功,自动跳转到聊天页面...")
 				uni.setStorageSync("userName", loginForm.userName);
-				uni.setStorageSync("password", loginForm.password);
 				uni.setStorageSync("loginInfo", loginInfo);
 				// 调用App.vue的初始化方法
 				getApp().init()

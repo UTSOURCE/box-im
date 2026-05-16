@@ -40,6 +40,8 @@
 
 <script>
 import Icp from '../components/common/Icp.vue'
+import { saveLoginSession } from '../api/auth.js'
+
 export default {
 	name: "register",
 	components: {
@@ -114,12 +116,10 @@ export default {
 							})
 						})
 						.then((data) => {
-							// 保存登录信息到本地，兼容新版逻辑
-							localStorage.setItem('isAutoLogin', true);
-							localStorage.setItem('username', this.registerForm.userName);
-							localStorage.setItem('password', this.registerForm.password);
-							sessionStorage.setItem("accessToken", data.accessToken);
-							sessionStorage.setItem("refreshToken", data.refreshToken);
+							saveLoginSession(data, {
+								autoLogin: true,
+								userName: this.registerForm.userName
+							});
 							this.$message.success(`注册成功，欢迎使用${process.env.VUE_APP_NAME}`);
 							this.$router.push("/home/chat");
 						})
