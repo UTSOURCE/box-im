@@ -20,7 +20,8 @@
         "modules" : {
             "Camera" : {},
             "Record" : {},
-            "Bluetooth" : {}
+            "Bluetooth" : {},
+            "SQLite" : {}
         },
         "softinput" : {
             "mode" : "adjustResize"

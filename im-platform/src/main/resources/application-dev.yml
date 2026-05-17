@@ -1,7 +1,7 @@
 spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/im_platform?useSSL=false&useUnicode=true&characterEncoding=utf-8&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3306/im_platform_open?useSSL=false&useUnicode=true&characterEncoding=utf-8&allowPublicKeyRetrieval=true
     username: root
     password: root
   data:
@@ -11,7 +11,7 @@ spring:
 
 minio:
   endpoint: http://127.0.0.1:9000 #内网地址
-  domain: http://127.0.0.1:9000  #外网访问地址
+  domain: http://192.168.2.67:9000  #外网访问地址
   accessKey: minioadmin
   secretKey: minioadmin
   bucketName: box-im

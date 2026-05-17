@@ -652,7 +652,7 @@ export default {
 			if (!friend) {
 				friend = {
 					id: id,
-					showNickName: "未知用户",
+					nickName: "未知用户",
 					headImage: ""
 				}
 			}

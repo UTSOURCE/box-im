@@ -14,7 +14,6 @@ class ImSqliteDB extends DB {
 		this.dbName = DB_NAME_PREFIX + userId;
 		this.dbPath = `_doc/${this.dbName}.db`;
 		if (!this._isOpenDatabase()) {
-			console.log("打开数据库")
 			await this._openDatabase();
 		}
 		await this._executeSql(`

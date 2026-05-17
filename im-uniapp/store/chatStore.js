@@ -598,17 +598,17 @@ export default defineStore('chatStore', {
 			}
 		},
 		async updateFromFriend(friend) {
-			let conv = this.findByFriend(friend.id);
+			const conv = this.findByFriend(friend.id);
 			// 更新会话中的昵称和头像
 			if (conv && (conv.headImage != friend.headImage ||
-					conv.showName != friend.showNickName)) {
+					conv.showName != friend.nickName)) {
 				conv.headImage = friend.headImage;
-				conv.showName = friend.showNickName;
+				conv.showName = friend.nickName;
 				await getDB().saveConversation(toRaw(conv));
 			}
 		},
 		async updateFromUser(user) {
-			let conv = this.findByFriend(user.id);
+			const conv = this.findByFriend(user.id);
 			// 更新会话中的昵称和头像
 			if (conv && (conv.headImage != user.headImageThumb ||
 					conv.showName != user.nickName)) {
@@ -618,7 +618,7 @@ export default defineStore('chatStore', {
 			}
 		},
 		async updateFromGroup(group) {
-			let conv = this.findByGroup(group.id);
+			const conv = this.findByGroup(group.id);
 			if (conv && (conv.headImage != group.headImageThumb ||
 					conv.showName != group.showGroupName)) {
 				// 更新会话中的群名称和头像

@@ -4,7 +4,7 @@
 		<view class="chat-main-box" :style="{height: chatMainHeight+'px'}">
 			<view class="chat-message" @click="switchChatTabBox('none')">
 				<scroll-view class="scroll-box" scroll-y="true" upper-threshold="200" @scrolltoupper="onScrollToTop"
-					:scroll-into-view="'m-' + chatStore.scrollMessageLocalId">
+					@scrolltolower="onScrollToBottom" :scroll-into-view="'m-' + chatStore.scrollMessageLocalId">
 					<view v-if="conversation" class="chat-wrap">
 						<long-press-menu ref="messageMenu" @select="onSelectMessageMenu">
 							<view v-for="m in messages" :key="m.localId">
@@ -681,6 +681,7 @@ export default {
 			await this.resetMessages();
 			this.scrollToBottom()
 			this.switchChatTabBox('none')
+			setTimeout(() => this.scrollToBottom(), 100);
 		},
 		onAudioStateChange(state, message) {
 			const playingAudio = this.$refs[message.localId][0]
@@ -741,7 +742,6 @@ export default {
 				const friend = JSON.parse(JSON.stringify(this.friend));
 				friend.headImage = this.userInfo.headImageThumb;
 				friend.nickName = this.userInfo.nickName;
-				friend.showNickName = friend.remarkNickName ? friend.remarkNickName : friend.nickName;
 				await this.chatStore.updateFromFriend(friend);
 				this.friendStore.updateFriend(friend);
 			} else {
@@ -1098,7 +1098,6 @@ export default {
 			if (this.$msgType.isNormal(message.type) || this.$msgType.isAction(message.type)) {
 				// 新消息来时，如果用户本来就在底部不远位置，则直接拉到底部
 				if (this.chatStore.isInBottom || message.selfSend) {
-					console.log("scrollToBottom")
 					this.scrollToBottom();
 				}
 			}

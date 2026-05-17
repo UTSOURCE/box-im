@@ -1,5 +1,5 @@
 <template>
-	<view class="chat-message-item">
+	<view class="chat-message-item" :class="active?'active':''">
 		<view class="message-tip" v-if="message.type == $enums.MESSAGE_TYPE.TIP_TEXT">
 			{{ message.content }}
 		</view>
@@ -92,6 +92,10 @@ export default {
 		message: {
 			type: Object,
 			required: true
+		},
+		active: {
+			type: Boolean,
+			default: false
 		}
 	},
 	data() {
@@ -255,6 +259,10 @@ export default {
 <style scoped lang="scss">
 .chat-message-item {
 	padding: 2rpx 20rpx;
+
+	&.active {
+		background: $im-bg-active-dark;
+	}
 
 	.message-tip {
 		line-height: 60rpx;

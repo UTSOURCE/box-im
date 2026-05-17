@@ -38,6 +38,22 @@ ALTER TABLE  `im_friend` DROP INDEX  `idx_user_friend_id`;
 
 ALTER TABLE `im_friend` ADD UNIQUE KEY `idx_user_friend_id` (`user_id`, `friend_id`);
 
+ALTER TABLE im_group_member ADD `version` BIGINT DEFAULT 0 comment '版本号';
+
+
+create table `im_message_deletion`
+(
+    `id`          bigint  not null auto_increment primary key comment 'id',
+    `user_id`     bigint  not null comment '用户id',
+    `chat_type`   tinyint not null comment '会话类型 1:私聊 2:群聊',
+    `chat_id`     bigint  not null comment '好友id、群聊id',
+    `message_id`  bigint(20) comment '消息id',
+    `delete_type` tinyint not null comment '删除类型 1:按消息删除 2:按会话删除',
+    `delete_time` datetime default current_timestamp comment '消息删除时间',
+    key           `idx_user_id` (`user_id`)
+) engine = innodb charset = utf8mb4 comment '消息删除记录';
+
+
 UPDATE im_private_message pm
 JOIN (
     SELECT t.id,
@@ -67,17 +83,6 @@ JOIN (
 SET gm.seq_no = s.new_seq;
 
 
-create table `im_message_deletion`
-(
-    `id`          bigint  not null auto_increment primary key comment 'id',
-    `user_id`     bigint  not null comment '用户id',
-    `chat_type`   tinyint not null comment '会话类型 1:私聊 2:群聊',
-    `chat_id`     bigint  not null comment '好友id、群聊id',
-    `message_id`  bigint(20) comment '消息id',
-    `delete_type` tinyint not null comment '删除类型 1:按消息删除 2:按会话删除',
-    `delete_time` datetime default current_timestamp comment '消息删除时间',
-    key           `idx_user_id` (`user_id`)
-) engine = innodb charset = utf8mb4 comment '消息删除记录';
 
 
 

@@ -160,7 +160,6 @@ export default {
 				const friend = JSON.parse(JSON.stringify(this.activeFriend));
 				friend.headImage = this.userInfo.headImageThumb;
 				friend.nickName = this.userInfo.nickName;
-				friend.showNickName = friend.remarkNickName ? friend.remarkNickName : friend.nickName;
 				this.chatStore.updateFromFriend(friend);
 				this.friendStore.updateFriend(friend);
 			}
