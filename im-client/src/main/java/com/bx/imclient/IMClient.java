@@ -2,6 +2,7 @@ package com.bx.imclient;
 
 import com.bx.imclient.sender.IMSender;
 import com.bx.imcommon.enums.IMTerminalType;
+import com.bx.imcommon.model.IMBatchPrivateMessage;
 import com.bx.imcommon.model.IMGroupMessage;
 import com.bx.imcommon.model.IMPrivateMessage;
 import com.bx.imcommon.model.IMSystemMessage;
@@ -75,6 +76,16 @@ public class IMClient {
      */
     public<T> void sendPrivateMessage(IMPrivateMessage<T> message){
         imSender.sendPrivateMessage(message);
+    }
+
+
+    /**
+     * 批量发送私聊消息（发送结果通过MessageListener接收）
+     *
+     * @param message 私有消息
+     */
+    public<T> void sendBatchPrivateMessage(IMBatchPrivateMessage<T> message){
+        imSender.sendBatchPrivateMessage(message);
     }
 
     /**

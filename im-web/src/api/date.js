@@ -1,4 +1,4 @@
-let toTimeText = (timeStamp, simple) => {
+const toTimeText = (timeStamp, simple) => {
 	var dateTime = new Date(timeStamp)
 	var currentTime = Date.parse(new Date()); //当前时间
 	var timeDiff = currentTime - dateTime; //与当前时间误差
@@ -27,18 +27,26 @@ let toTimeText = (timeStamp, simple) => {
 	return timeText;
 }
 
-let isYestday = (date) => {
-	var yesterday = new Date(new Date() - 1000 * 60 * 60 * 24);
+const isToday = (date) => {
+	const today = new Date();
+	return today.getYear() === date.getYear() &&
+		today.getMonth() === date.getMonth() &&
+		today.getDate() === date.getDate();
+}
+
+
+const isYestday = (date) => {
+	const yesterday = new Date(new Date() - 1000 * 60 * 60 * 24);
 	return yesterday.getYear() === date.getYear() &&
 		yesterday.getMonth() === date.getMonth() &&
 		yesterday.getDate() === date.getDate();
 }
 
-let isYear = (date) => {
+const isYear = (date) => {
 	return date.getYear() === new Date().getYear();
 }
 
-let formatDateTime = (date) => {
+const formatDateTime = (date) => {
 	if (date === '' || !date) {
 		return ''
 	}
@@ -58,8 +66,10 @@ let formatDateTime = (date) => {
 }
 
 
+
 export {
 	toTimeText,
+	isToday,
 	isYestday,
 	isYear,
 	formatDateTime

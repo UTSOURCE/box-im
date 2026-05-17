@@ -1,6 +1,7 @@
 import axios from 'axios'
 
 import { Message } from 'element-ui'
+import { getRefreshToken, saveTokens } from './auth.js'
 
 const http = axios.create({
 	baseURL: process.env.VUE_APP_BASE_API,
@@ -31,9 +32,10 @@ http.interceptors.response.use(async response => {
 		location.href = "/";
 	} else if (response.data.code == 401) {
 		console.log("token失效，尝试重新获取")
-		let refreshToken = sessionStorage.getItem("refreshToken");
+		let refreshToken = getRefreshToken();
 		if (!refreshToken) {
 			location.href = "/";
+			return Promise.reject(response.data);
 		}
 		// 发送请求, 进行刷新token操作, 获取新的token
 		const data = await http({
@@ -44,10 +46,10 @@ http.interceptors.response.use(async response => {
 			}
 		}).catch(() => {
 			location.href = "/";
+			return Promise.reject(response.data);
 		})
-		// 保存token
-		sessionStorage.setItem("accessToken", data.accessToken);
-		sessionStorage.setItem("refreshToken", data.refreshToken);
+		saveTokens(data);
+		response.config.headers.accessToken = encodeURIComponent(data.accessToken);
 		// 重新发送刚才的请求
 		return http(response.config)
 	} else {

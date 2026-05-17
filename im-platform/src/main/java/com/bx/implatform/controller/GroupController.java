@@ -57,9 +57,10 @@ public class GroupController {
 
     @Operation(summary = "查询群聊列表", description = "查询群聊列表")
     @GetMapping("/list")
-    public Result<List<GroupVO>> findGroups() {
-        return ResultUtils.success(groupService.findGroups());
+    public Result<List<GroupVO>> findGroups(@RequestParam(defaultValue = "0") Long version) {
+        return ResultUtils.success(groupService.findGroups(version));
     }
+
 
     @RepeatSubmit
     @Operation(summary = "邀请进群", description = "邀请好友进群")
@@ -71,10 +72,17 @@ public class GroupController {
 
     @Operation(summary = "查询群聊成员", description = "查询群聊成员")
     @GetMapping("/members/{groupId}")
-    public Result<List<GroupMemberVO>> findGroupMembers(
-        @NotNull(message = "群聊id不能为空") @PathVariable Long groupId) {
-        return ResultUtils.success(groupService.findGroupMembers(groupId));
+    public Result<List<GroupMemberVO>> findGroupMembers(@NotNull(message = "群聊id不能为空") @PathVariable Long groupId,
+        @RequestParam(defaultValue = "0") Long version) {
+        return ResultUtils.success(groupService.findGroupMembers(groupId, version));
     }
+
+    @Operation(summary = "查询在线群聊成员id", description = "查询在线群聊成员id")
+    @GetMapping("/members/online/{groupId}")
+    public Result<List<Long>> findOnlineMemberIds(@NotNull(message = "群聊id不能为空") @PathVariable Long groupId){
+        return ResultUtils.success(groupService.findOnlineMemberIds(groupId));
+    }
+
 
     @RepeatSubmit
     @Operation(summary = "将成员移出群聊", description = "将成员移出群聊")
@@ -90,15 +98,6 @@ public class GroupController {
     @DeleteMapping("/quit/{groupId}")
     public Result quitGroup(@NotNull(message = "群聊id不能为空") @PathVariable Long groupId) {
         groupService.quitGroup(groupId);
-        return ResultUtils.success();
-    }
-
-    @RepeatSubmit
-    @Operation(summary = "踢出群聊(已废弃)", description = "将用户踢出群聊")
-    @DeleteMapping("/kick/{groupId}")
-    public Result kickGroup(@NotNull(message = "群聊id不能为空") @PathVariable Long groupId,
-        @NotNull(message = "用户id不能为空") @RequestParam Long userId) {
-        groupService.kickGroup(groupId, userId);
         return ResultUtils.success();
     }
 

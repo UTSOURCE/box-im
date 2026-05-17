@@ -26,4 +26,7 @@ public class FriendVO {
 
     @Schema(description = "是否已删除")
     private Boolean deleted;
+
+    @Schema(description = "版本号")
+    private Long version;
 }

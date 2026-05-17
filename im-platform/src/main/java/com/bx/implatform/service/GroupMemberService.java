@@ -28,6 +28,15 @@ public interface GroupMemberService extends IService<GroupMember> {
 
 
     /**
+     * 根据群聊id和用户id查询群聊成员
+     *
+     * @param groupId 群聊id
+     * @param userIds 用户id
+     * @return 群聊成员信息
+     */
+    List<GroupMember> findByGroupAndUserIds(Long groupId, List<Long> userIds);
+
+    /**
      * 根据用户id查询某段时间内退的群
      *
      * @param userId      用户id
@@ -40,9 +49,10 @@ public interface GroupMemberService extends IService<GroupMember> {
      * 根据群聊id查询群聊成员（包括已退出）
      *
      * @param groupId 群聊id
+     * @param version 版本号
      * @return 群聊成员列表
      */
-    List<GroupMember> findByGroupId(Long groupId);
+    List<GroupMember> findByGroupId(Long groupId, Long version);
 
 
 
@@ -101,4 +111,15 @@ public interface GroupMemberService extends IService<GroupMember> {
      * @param isDnd 是否开启免打扰
      */
     void setDnd(Long groupId, Long userId, Boolean isDnd);
+
+    /**
+     * 获取群内成员最大版本号
+     *
+     * @return
+     */
+    Long getNextVersion();
+
+
+    @Override
+    boolean saveOrUpdate(GroupMember member);
 }

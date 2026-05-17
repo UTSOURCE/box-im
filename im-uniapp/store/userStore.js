@@ -14,18 +14,12 @@ export default defineStore('userStore', {
 		clear() {
 			this.userInfo = {};
 		},
-		loadUser() {
-			return new Promise((resolve, reject) => {
-				http({
-					url: '/user/self',
-					method: 'GET'
-				}).then((userInfo) => {
-					this.setUserInfo(userInfo);
-					resolve();
-				}).catch((res) => {
-					reject(res);
-				});
-			})
+		async loadUser() {
+			const userInfo = await http({ url: '/user/self' });
+			this.setUserInfo(userInfo);
+			if (userInfo.deleted || userInfo.isBanned) {
+				throw new Error("账户已注销或被封禁")
+			}
 		}
 	}
 })

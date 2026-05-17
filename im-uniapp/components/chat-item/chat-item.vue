@@ -3,22 +3,24 @@
 		<!--rich-text中的表情包会屏蔽事件，所以这里用一个遮罩层捕获点击事件 -->
 		<view class="mask" @tap="showChatBox()"></view>
 		<view class="left">
-			<head-image :url="chat.headImage" :name="chat.showName" :online="online"></head-image>
+			<head-image :url="conversation.headImage" :name="conversation.showName" :online="online"></head-image>
 		</view>
 		<view class="chat-right">
 			<view class="chat-name">
 				<view class="chat-name-text">
-					<view>{{ chat.showName }}</view>
+					<view>{{ conversation.showName }}</view>
 				</view>
-				<view class="chat-time">{{ $date.toTimeText(chat.lastSendTime, true) }}</view>
+				<view class="chat-time">{{ $date.toTimeText(conversation.lastSendTime, true) }}</view>
 			</view>
 			<view class="chat-content">
 				<view class="chat-at-text">{{ atText }}</view>
-				<view class="chat-send-name" v-if="isShowSendName">{{ chat.sendNickName + ':&nbsp;' }}</view>
-				<view v-if="!isTextMessage" class="chat-content-text">{{chat.lastContent}}</view>
-				<rich-text v-else class="chat-content-text" :nodes="nodesText"></rich-text>
-				<view v-if="chat.isDnd" class="icon iconfont icon-dnd"></view>
-				<uni-badge v-else-if="chat.unreadCount > 0" :max-num="99" :text="chat.unreadCount" />
+				<view class="chat-send-name" v-if="isShowSendName">{{ conversation.sendNickName + ':&nbsp;' }}</view>
+				<rich-text class="chat-content-text" :nodes="nodesText"></rich-text>
+				<view v-if="conversation.isDnd" class="icon iconfont icon-dnd"></view>
+				<uni-badge v-else-if="conversation.unreadCount > 0" :max-num="99" :text="conversation.unreadCount" />
+			</view>
+			<view v-if="conversation.isTop" class="chat-top">
+				<text class="icon iconfont icon-top-message"></text>
 			</view>
 		</view>
 	</view>
@@ -31,11 +33,8 @@ export default {
 		return {}
 	},
 	props: {
-		chat: {
+		conversation: {
 			type: Object
-		},
-		index: {
-			type: Number
 		},
 		active: {
 			type: Boolean,
@@ -44,59 +43,40 @@ export default {
 	},
 	methods: {
 		showChatBox() {
-			// 初始化期间进入会话会导致消息不刷新
-			if (!this.configStore.appInit || this.chatStore.loading) {
-				uni.showToast({
-					title: "正在初始化页面,请稍后...",
-					icon: 'none'
-				})
-				return;
-			}
 			uni.navigateTo({
-				url: "/pages/chat/chat-box?chatIdx=" + this.index
+				url: "/pages/chat/chat-box?convKey=" + this.conversation.key
 			})
 		}
 	},
 	computed: {
 		isShowSendName() {
-			if (!this.chat.sendNickName) {
-				return false;
-			}
-			let size = this.chat.messages.length;
-			if (size == 0) {
-				return false;
-			}
-			// 只有群聊的普通消息需要显示名称
-			let lastMsg = this.chat.messages[size - 1];
-			return this.$msgType.isNormal(lastMsg.type)
+			return this.conversation.sendNickName;
 		},
 		atText() {
-			if (this.chat.atMe) {
+			if (this.conversation.atMe) {
 				return "[有人@我]"
-			} else if (this.chat.atAll) {
+			} else if (this.conversation.atAll) {
 				return "[@全体成员]"
 			}
 			return "";
 		},
-		isTextMessage() {
-			if (this.chat.messages.length == 0) {
-				return false;
-			}
-			let idx = this.chat.messages.length - 1;
-			let messageType = this.chat.messages[idx].type;
-			return messageType == this.$enums.MESSAGE_TYPE.TEXT;
-		},
 		nodesText() {
-			let text = this.$str.html2Escape(this.chat.lastContent);
+			let text = this.$str.html2Escape(this.conversation.lastContent);
 			return this.$emo.transform(text, 'emoji-small')
 		},
 		online() {
-			if (this.chat.type == 'PRIVATE') {
-				let friend = this.friendStore.findFriend(this.chat.targetId);
+			if (this.isPrivate) {
+				const friend = this.friendStore.findFriend(this.conversation.targetId);
 				return friend && friend.online;
 			}
 			return false;
-		}
+		},
+		isPrivate() {
+			return this.$enums.CONVERSATION_TYPE.PRIVATE == this.conversation.type
+		},
+		isGroup() {
+			return this.$enums.CONVERSATION_TYPE.GROUP == this.conversation.type
+		},
 	}
 }
 </script>
@@ -193,6 +173,26 @@ export default {
 
 			.icon {
 				font-size: $im-font-size;
+			}
+		}
+
+		.chat-top {
+			position: absolute;
+			top: 3rpx;
+			right: 3rpx;
+			width: 35rpx;
+			height: 35rpx;
+			background: linear-gradient(225deg, #ffffff50 25%, #00000060), $im-color-primary;
+			clip-path: polygon(0% 0%, 100% 100%, 100% 0%);
+			border-radius: 6rpx 0 6rpx 0;
+
+			.icon {
+				position: absolute;
+				top: 2rpx;
+				right: 0;
+				color: white;
+				text-align: right;
+				font-size: 20rpx;
 			}
 		}
 	}

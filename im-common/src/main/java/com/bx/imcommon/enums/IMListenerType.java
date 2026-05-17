@@ -19,7 +19,11 @@ public enum IMListenerType {
     /**
      * 系统消息
      */
-    SYSTEM_MESSAGE(3, "群聊消息");
+    SYSTEM_MESSAGE(3, "群聊消息"),
+    /**
+     *  用户事件
+     */
+    USER_EVENT(4, "用户事件");
 
 
 

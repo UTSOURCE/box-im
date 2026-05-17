@@ -130,18 +130,28 @@ export default {
       })
     },
     onQuit() {
-      this.$confirm('退出群聊后将不再接受群里的消息，确认退出吗？', '确认退出?', {
+      const group = this.group;
+      this.$confirm(`确认退出'${group.showGroupName}',并清空聊天记录吗？`, '确认退出?', {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
         type: 'warning'
-      }).then(() => {
-        this.$http({
-          url: `/group/quit/${this.group.id}`,
+      }).then(async () => {
+        await this.$http({
+          url: `/group/quit/${group.id}`,
           method: 'delete'
-        }).then(() => {
-          this.groupStore.removeGroup(this.group.id);
-          this.chatStore.removeGroupChat(this.group.id);
+        })
+        this.groupStore.removeGroup(group.id);
+        // 删除会话
+        const data = { chatId: group.id }
+        await this.$http({
+          url: `/message/group/deleteChat`,
+          method: 'delete',
+          data: data
         });
+        const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, group.id)
+        this.chatStore.remove(convKey);
+        this.$message.success(`您已退出'${group.name}'`);
+        this.reset();
       })
     },
     onScroll(e) {

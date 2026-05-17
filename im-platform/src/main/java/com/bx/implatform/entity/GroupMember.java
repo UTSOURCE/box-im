@@ -79,6 +79,11 @@ public class GroupMember extends Model<GroupMember> {
      */
     private Date quitTime;
 
+    /**
+     * 版本号
+     */
+    private Long version;
+
     public String getShowNickName() {
         return StrUtil.blankToDefault(remarkNickName, userNickName);
     }

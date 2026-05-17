@@ -58,8 +58,11 @@ export default {
 	.friend-info {
 		flex: 1;
 		display: flex;
+		flex-direction: column;
 		padding-left: 20rpx;
 		text-align: left;
+		overflow: hidden;
+		box-sizing: border-box;
 
 		.friend-name {
 			flex: 1;

@@ -2,8 +2,7 @@
 	<uni-popup ref="popup" type="bottom">
 		<view class="chat-group-readed">
 			<view class="uni-padding-wrap uni-common-mt">
-				<uni-segmented-control :current="current" :values="items" style-type="button"
-					@clickItem="onClickItem" />
+				<uni-segmented-control :current="current" :values="segmentItems" style-type="button" @clickItem="onClickItem" />
 			</view>
 			<view class="content">
 				<view v-if="current === 0">
@@ -38,69 +37,62 @@ export default {
 	name: "chat-group-readed",
 	data() {
 		return {
-			items: ['已读', '未读'],
+			message: {},
+			groupMembers: [],
 			current: 0,
 			readedMembers: [],
 			unreadMembers: []
 		};
 	},
-	props: {
-		msgInfo: {
-			type: Object,
-			required: true
-		},
-		groupMembers: {
-			type: Array
-		}
-	},
 	methods: {
-		open() {
+		open(message, groupMembers) {
+			this.message = message;
+			this.groupMembers = groupMembers;
 			this.$refs.popup.open();
 			this.loadReadedUser();
 		},
-		loadReadedUser() {
-			if (!this.msgInfo.id) {
+		async loadReadedUser() {
+			if (!this.message.id) {
 				return;
 			}
 			this.readedMembers = [];
 			this.unreadMembers = [];
-			this.$http({
-				url: `/message/group/findReadedUsers?groupId=${this.msgInfo.groupId}&messageId=${this.msgInfo.id}`,
-				method: 'Get'
-			}).then(userIds => {
-				this.groupMembers.forEach(member => {
-					// 发送者和已退群的不显示
-					if (member.userId == this.msgInfo.sendId || member.quit) {
-						return;
-					}
-					// 区分已读还是未读
-					if (userIds.find(userId => member.userId == userId)) {
-						this.readedMembers.push(member);
-					} else {
-						this.unreadMembers.push(member);
-					}
-				})
-				this.items[0] = `已读(${this.readedMembers.length})`;
-				this.items[1] = `未读(${this.unreadMembers.length})`;
-
-				let chatInfo = {
-					type: 'GROUP',
-					targetId: this.msgInfo.groupId
-				}
-				let msgInfo = {
-					id: this.msgInfo.id,
-					groupId: this.msgInfo.groupId,
-					readedCount: this.readedMembers.length
-				}
-				// 更新已读人数
-				this.chatStore.updateMessage(msgInfo, chatInfo)
+			const userIds = await this.$http({
+				url: `/message/group/findReadedUsers?groupId=${this.message.groupId}&messageId=${this.message.id}`
 			})
+			this.readedMembers = [];
+			this.unreadMembers = [];
+			this.groupMembers.forEach(member => {
+				// 发送者和已退群的不显示
+				if (member.userId == this.message.sendId || member.quit) {
+					return;
+				}
+				// 区分已读还是未读
+				if (userIds.find(userId => member.userId == userId)) {
+					this.readedMembers.push(member);
+				} else {
+					this.unreadMembers.push(member);
+				}
+			})
+			// 更新已读人数
+			const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, this.message.groupId)
+			this.message.readedCount = this.readedMembers.length;
+			this.chatStore.updateMessage(convKey, this.message)
 		},
 		onClickItem(e) {
 			this.current = e.currentIndex;
 		}
+	},
+	computed: {
+		segmentItems() {
+			return [
+				`已读(${this.readedMembers.length })`,
+				`未读(${this.unreadMembers.length })`
+			];
+		}
 	}
 }
+
 </script>
 
 <style lang="scss" scoped>
@@ -130,7 +122,6 @@ export default {
 			overflow: hidden;
 		}
 	}
-
-
 }
+
 </style>

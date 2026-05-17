@@ -6,18 +6,63 @@ public final class RedisKey {
      *  用户状态 无值:空闲  1:正在忙
      */
     public static final String IM_USER_STATE = "im:user:state";
+
+    /**
+     * 私聊会话已读位置(已读最大id)
+     */
+    public static final String IM_PRIVATE_READED_POSITION = "im:readed:private:position";
+
     /**
      * 已读群聊消息位置(已读最大id)
      */
     public static final String IM_GROUP_READED_POSITION = "im:readed:group:position";
+
+    /**
+     * 私聊会话消息最大id
+     */
+    public static final String IM_PRIVATE_MESSAGE_MAX_ID = "im:message:private:max_id";
+
+    /**
+     * 群聊会话消息最大id
+     */
+    public static final String IM_GROUP_MESSAGE_MAX_ID = "im:message:group:max_id";
+
+    /**
+     * 私聊会话消息最大序列号
+     */
+    public static final String IM_PRIVATE_MESSAGE_MAX_SEQ = "im:message:private:max_seq";
+
+    /**
+     * 群聊会话消息最大id
+     */
+    public static final String IM_GROUP_MESSAGE_MAX_SEQ = "im:message:group:max_seq";
+
+    /**
+     * 分布式锁-保存私聊会话消息
+     */
+    public static final String IM_LOCK_PRIVATE_MESSAGE_SAVE = "im:lock:message:private:save";
+
+
+    /**
+     * 分布式锁-私聊会话消息最大序列号
+     */
+    public static final String IM_LOCK_PRIVATE_MESSAGE_MAX_SEQ = "im:lock:message:private:max_seq";
+
+    /**
+     * 分布式锁-群聊会话消息最大序列号
+     */
+    public static final String IM_LOCK_GROUP_MESSAGE_MAX_SEQ = "im:lock:message:group:max_seq";
+
+
+    /**
+     * 分布式锁-保存群聊会话消息
+     */
+    public static final String IM_LOCK_GROUP_MESSAGE_SAVE = "im:lock:message:group:save";
+
     /**
      * webrtc 单人通话
      */
     public static final String IM_WEBRTC_PRIVATE_SESSION = "im:webrtc:private:session";
-    /**
-     * webrtc 群通话
-     */
-    public static final String IM_WEBRTC_GROUP_SESSION = "im:webrtc:group:session";
 
     /**
      * 用户被封禁消息队列
@@ -49,6 +94,10 @@ public final class RedisKey {
     public static final String IM_CACHE_GROUP_MEMBER_ID = "im:cache:group_member_ids";
 
     /**
+     * 缓存消息删除记录
+     */
+    public static final String IM_CACHE_MESSAGE_DELETION = "im:cache:message:deletion";
+    /**
      * 重复提交
      */
     public static final String IM_REPEAT_SUBMIT = "im:repeat:submit";
@@ -68,5 +117,16 @@ public final class RedisKey {
      * 分布式锁-清理过期文件
      */
     public static final String IM_LOCK_FILE_TASK =  "im:lock:task:file";
+
+    /**
+     * 群成员最大版本号
+     */
+    public static final String IM_GROUP_MEMBER_MAX_VERSION = "im:group:member:max_version";
+
+
+    /**
+     * 好友信息最大版本号
+     */
+    public static final String IM_FRIEND_MAX_VERSION = "im:friend:max_version";
 
 }

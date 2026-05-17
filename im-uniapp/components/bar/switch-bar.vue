@@ -42,8 +42,8 @@ export default {
 .switch-bar {
 	width: 100%;
 	height: 100rpx;
-	font-size: 34rpx;
-	color: black;
+	font-size: $im-font-size;
+	color: $im-text-color;
 	margin-top: 5rpx;
 	background-color: white;
 	line-height: 100rpx;

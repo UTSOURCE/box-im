@@ -23,10 +23,14 @@ public class PrivateMessage {
     private Long id;
 
     /**
-     * 临时id,由前端生成
-     * 作用:如果用户正在发送消息时掉线了，可以通过此字段获取该消息的实际发送状态
+     * 前端本地消息id,由前端生成
      */
-    private String tmpId;
+    private String localId;
+
+    /**
+     * 消息序列号，单会话连续递增
+     */
+    private Long seqNo;
 
     /**
      * 发送用户id
@@ -37,6 +41,12 @@ public class PrivateMessage {
      * 接收用户id
      */
     private Long recvId;
+
+    /**
+     * 会话key, 格式:userId1_userId2,注意跟前端的conv_key格式不一致
+     */
+    private String convKey;
+
 
     /**
      * 发送内容

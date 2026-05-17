@@ -86,7 +86,6 @@ export default {
 			}).then(loginInfo => {
 				console.log("登录成功,自动跳转到聊天页面...")
 				uni.setStorageSync("userName", this.dataForm.userName);
-				uni.setStorageSync("password", this.dataForm.password);
 				uni.setStorageSync("isAgree", this.isAgree);
 				uni.setStorageSync("loginInfo", loginInfo);
 				// 调用App.vue的初始化方法
@@ -107,7 +106,6 @@ export default {
 	},
 	onLoad() {
 		this.dataForm.userName = uni.getStorageSync("userName");
-		this.dataForm.password = uni.getStorageSync("password");
 	}
 }
 </script>

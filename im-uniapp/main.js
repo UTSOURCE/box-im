@@ -7,6 +7,8 @@ import * as enums from './common/enums.js';
 import * as date from './common/date';
 import * as socketApi from './common/wssocket';
 import * as messageType from './common/messageType';
+import * as messageUtil from './common/messageUtil';
+import nextSnowflakeId from './common/snowflake.js';
 import { createSSRApp } from 'vue'
 import uviewPlus from '@/uni_modules/uview-plus'
 import * as pinia from 'pinia';
@@ -19,6 +21,7 @@ import barGroup from '@/components/bar/bar-group'
 import arrowBar from '@/components/bar/arrow-bar'
 import btnBar from '@/components/bar/btn-bar'
 import switchBar from '@/components/bar/switch-bar'
+import { initDB, getDB } from '@/db/index.js';
 // #ifdef H5
 import * as recorder from './common/recorder-h5';
 import ImageResize from "quill-image-resize-mp";
@@ -44,12 +47,14 @@ export function createApp() {
 	app.config.globalProperties.$http = request;
 	app.config.globalProperties.$wsApi = socketApi;
 	app.config.globalProperties.$msgType = messageType;
+	app.config.globalProperties.$msgUtil = messageUtil;	
 	app.config.globalProperties.$emo = emotion;
 	app.config.globalProperties.$url = url;
 	app.config.globalProperties.$str = str;
 	app.config.globalProperties.$enums = enums;
 	app.config.globalProperties.$date = date;
 	app.config.globalProperties.$rc = recorder;
+	app.config.globalProperties.$nextSnowflakeId = nextSnowflakeId;
 	// 初始化时再挂载store对象
 	app.config.globalProperties.$mountStore = () => {
 		app.config.globalProperties.chatStore = useChatStore();
@@ -57,6 +62,11 @@ export function createApp() {
 		app.config.globalProperties.groupStore = useGroupStore();
 		app.config.globalProperties.configStore = useConfigStore();
 		app.config.globalProperties.userStore = useUserStore();
+	}
+	// 初始化时再挂载db
+	app.config.globalProperties.$mountDb = async () => {
+		await initDB();
+		app.config.globalProperties.$db = getDB();
 	}
 	return {
 		app,

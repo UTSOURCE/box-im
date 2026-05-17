@@ -33,7 +33,8 @@
 						<head-image v-show="!isOwner" class="avatar" :size="160" :url="activeGroup.headImage"
 							:name="activeGroup.showGroupName" radius="10%" @click.native="showFullImage()">
 						</head-image>
-						<el-button class="send-btn" icon="el-icon-position" type="primary" @click="onSendMessage()">发消息
+						<el-button class="send-btn" icon="el-icon-position" type="primary"
+							@click="onSendMessage(activeGroup)">发消息
 						</el-button>
 					</div>
 					<el-form class="form" label-width="130px" :model="activeGroup" :rules="rules" size="small"
@@ -57,10 +58,10 @@
 								maxlength="1024" placeholder="群主未设置"></el-input>
 						</el-form-item>
 						<div>
-							<el-button type="warning" @click="onInvite()">邀请</el-button>
+							<el-button type="warning" @click="onInviteMember()">邀请</el-button>
 							<el-button type="success" @click="onSaveGroup()">保存</el-button>
-							<el-button type="danger" v-show="!isOwner" @click="onQuit()">退出</el-button>
-							<el-button type="danger" v-show="isOwner" @click="onDissolve()">解散</el-button>
+							<el-button type="danger" v-show="!isOwner" @click="onQuit(activeGroup)">退出</el-button>
+							<el-button type="danger" v-show="isOwner" @click="onDissolve(activeGroup)">解散</el-button>
 						</div>
 					</el-form>
 				</div>
@@ -68,15 +69,15 @@
 				<el-scrollbar ref="scrollbar" :style="'height: ' + scrollHeight + 'px'">
 					<div class="member-items">
 						<div class="member-tools">
-							<div class="tool-btn" title="邀请好友进群聊" @click="onInvite()">
+							<div class="tool-btn" title="邀请好友进群聊" @click="onInviteMember()">
 								<i class="el-icon-plus"></i>
 							</div>
 							<div class="tool-text">邀请</div>
 							<add-group-member ref="addGroupMember" :groupId="activeGroup.id" :members="groupMembers"
-								@reload="loadGroupMembers"></add-group-member>
+								@reload="reloadMembers"></add-group-member>
 						</div>
 						<div class="member-tools" v-if="isOwner">
-							<div class="tool-btn" title="选择成员移出群聊" @click="onRemove()">
+							<div class="tool-btn" title="选择成员移出群聊" @click="onRemoveMember()">
 								<i class="el-icon-minus"></i>
 							</div>
 							<div class="tool-text">移除</div>
@@ -120,7 +121,6 @@ export default {
 			searchText: "",
 			maxSize: 5 * 1024 * 1024,
 			activeGroup: {},
-			groupMembers: [],
 			showAddGroupMember: false,
 			showMaxIdx: 150,
 			rules: {
@@ -159,13 +159,12 @@ export default {
 			// store数据不能直接修改，所以深拷贝一份内存
 			this.activeGroup = JSON.parse(JSON.stringify(group));
 			// 重新加载群成员
-			this.groupMembers = [];
-			this.loadGroupMembers();
+			this.reloadMembers();
 		},
-		onInvite() {
+		onInviteMember() {
 			this.$refs.addGroupMember.open();
 		},
-		onRemove() {
+		onRemoveMember() {
 			// 群主不显示
 			let hideIds = [this.activeGroup.ownerId];
 			this.$refs.removeSelector.open(50, [], [], hideIds);
@@ -181,7 +180,7 @@ export default {
 				method: 'delete',
 				data: data
 			}).then(() => {
-				this.loadGroupMembers();
+				this.reloadMembers();
 				this.$message.success(`您移除了${userIds.length}位成员`);
 			})
 		},
@@ -204,49 +203,60 @@ export default {
 				}
 			});
 		},
-		onDissolve() {
-			this.$confirm(`确认要解散'${this.activeGroup.name}'吗?`, '确认解散?', {
+		onDissolve(group) {
+			this.$confirm(`确认要解散'${group.name}'吗?`, '确认解散?', {
 				confirmButtonText: '确定',
 				cancelButtonText: '取消',
 				type: 'warning'
 			}).then(() => {
 				this.$http({
-					url: `/group/delete/${this.activeGroup.id}`,
+					url: `/group/delete/${group.id}`,
 					method: 'delete'
 				}).then(() => {
-					this.$message.success(`群聊'${this.activeGroup.name}'已解散`);
-					this.groupStore.removeGroup(this.activeGroup.id);
+					this.$message.success(`群聊'${group.name}'已解散`);
+					this.groupStore.removeGroup(group.id);
 					this.reset();
 				});
 			})
 		},
-		onQuit() {
-			this.$confirm(`确认退出'${this.activeGroup.showGroupName}',并清空聊天记录吗？`, '确认退出?', {
+		onQuit(group) {
+			this.$confirm(`确认退出'${group.showGroupName}',并清空聊天记录吗？`, '确认退出?', {
 				confirmButtonText: '确定',
 				cancelButtonText: '取消',
 				type: 'warning'
-			}).then(() => {
-				this.$http({
-					url: `/group/quit/${this.activeGroup.id}`,
+			}).then(async () => {
+				await this.$http({
+					url: `/group/quit/${group.id}`,
 					method: 'delete'
-				}).then(() => {
-					this.$message.success(`您已退出'${this.activeGroup.name}'`);
-					this.groupStore.removeGroup(this.activeGroup.id);
-					this.chatStore.removeGroupChat(this.activeGroup.id);
-					this.reset();
 				});
+				this.groupStore.removeGroup(group.id);
+				// 删除会话
+				const data = { chatId: group.id }
+				await this.$http({
+					url: `/message/group/deleteChat`,
+					method: 'delete',
+					data: data
+				});
+				const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, group.id)
+				this.chatStore.remove(convKey);
+				this.$message.success(`您已退出'${group.name}'`);
+				this.reset();
+
 			})
 		},
-		onSendMessage() {
-			let chat = {
-				type: 'GROUP',
-				targetId: this.activeGroup.id,
-				showName: this.activeGroup.showGroupName,
-				headImage: this.activeGroup.headImageThumb,
-				isDnd: this.activeGroup.isDnd
+		async onSendMessage(group) {
+			const convKey = this.$db.buildConversationKey(this.$enums.CONVERSATION_TYPE.GROUP, group.id)
+			const chatInfo = {
+				key: convKey,
+				type: this.$enums.CONVERSATION_TYPE.GROUP,
+				targetId: group.id,
+				showName: group.showGroupName,
+				headImage: group.headImageThumb,
+				isDnd: group.isDnd
 			};
-			this.chatStore.openChat(chat);
-			this.chatStore.setActiveChat(0);
+			await this.chatStore.openChat(chatInfo);
+			await this.chatStore.moveTop(convKey)
+			this.chatStore.setActive(convKey);
 			this.$router.push("/home/chat");
 		},
 		onScroll(e) {
@@ -263,17 +273,11 @@ export default {
 				this.$eventBus.$emit("openFullImage", this.activeGroup.headImage);
 			}
 		},
-		loadGroupMembers() {
-			this.$http({
-				url: `/group/members/${this.activeGroup.id}`,
-				method: "get"
-			}).then((members) => {
-				this.groupMembers = members;
-			})
+		reloadMembers() {
+			this.groupStore.refreshMember(this.activeGroup.id);
 		},
 		reset() {
 			this.activeGroup = {};
-			this.groupMembers = [];
 		},
 		firstLetter(strText) {
 			// 使用pinyin-pro库将中文转换为拼音
@@ -340,6 +344,10 @@ export default {
 		},
 		scrollHeight() {
 			return Math.min(300, 80 + this.showMembers.length / 10 * 80);
+		},
+		groupMembers() {
+			let group = this.groupStore.findGroup(this.activeGroup.id);
+			return group ? group.members : [];
 		}
 	},
 	mounted() {

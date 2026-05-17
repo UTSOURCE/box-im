@@ -1,6 +1,9 @@
 package com.bx.implatform.controller;
 
+import com.bx.implatform.dto.ChatDeleteDTO;
 import com.bx.implatform.dto.GroupMessageDTO;
+import com.bx.implatform.dto.GroupMessageHistoryDTO;
+import com.bx.implatform.dto.MessageDeleteDTO;
 import com.bx.implatform.result.Result;
 import com.bx.implatform.result.ResultUtils;
 import com.bx.implatform.service.GroupMessageService;
@@ -56,12 +59,25 @@ public class GroupMessageController {
         return ResultUtils.success(groupMessageService.findReadedUsers(groupId, messageId));
     }
 
-    @GetMapping("/history")
-    @Operation(summary = "查询聊天记录", description = "查询聊天记录")
-    public Result<List<GroupMessageVO>> recallMessage(@NotNull(message = "群聊id不能为空") @RequestParam Long groupId,
-        @NotNull(message = "页码不能为空") @RequestParam Long page,
-        @NotNull(message = "size不能为空") @RequestParam Long size) {
-        return ResultUtils.success(groupMessageService.findHistoryMessage(groupId, page, size));
+    @DeleteMapping("/deleteMessage")
+    @Operation(summary = "删除消息", description = "根据消息id列表删除消息")
+    public Result deleteMessage(@Valid @RequestBody MessageDeleteDTO dto) {
+        groupMessageService.deleteMessage(dto);
+        return ResultUtils.success();
+    }
+
+    @DeleteMapping("/deleteChat")
+    @Operation(summary = "删除会话", description = "删除会话以及会话中的所有消息")
+    public Result deleteChat(@Valid @RequestBody ChatDeleteDTO dto) {
+        groupMessageService.deleteChat(dto);
+        return ResultUtils.success();
+    }
+
+
+    @PostMapping("/history")
+    @Operation(summary = "查询历史消息", description = "查询历史消息")
+    public Result loadHistoryMessage(@Valid @RequestBody GroupMessageHistoryDTO dto) {
+        return ResultUtils.success(groupMessageService.loadHistoryMessage(dto));
     }
 }
 

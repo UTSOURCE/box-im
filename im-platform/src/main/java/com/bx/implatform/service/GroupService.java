@@ -43,14 +43,6 @@ public interface GroupService extends IService<Group> {
     void quitGroup(Long groupId);
 
     /**
-     * 将用户踢出群聊
-     *
-     * @param groupId 群聊id
-     * @param userId  用户id
-     */
-    void kickGroup(Long groupId, Long userId);
-
-    /**
      * 将用户移出群聊
      * @param dto dto
      */
@@ -59,9 +51,10 @@ public interface GroupService extends IService<Group> {
     /**
      * 查询当前用户的所有群聊
      *
+     * @param version 版本号
      * @return 群聊信息列表
      **/
-    List<GroupVO> findGroups();
+    List<GroupVO> findGroups(Long version);
 
     /**
      * 邀请好友进群
@@ -90,9 +83,17 @@ public interface GroupService extends IService<Group> {
      * 查询群成员
      *
      * @param groupId 群聊id
+     * @param version 版本号
      * @return List<GroupMemberVO>
      **/
-    List<GroupMemberVO> findGroupMembers(Long groupId);
+    List<GroupMemberVO> findGroupMembers(Long groupId,Long version);
+
+    /**
+     * 查询在线成员id
+     * @param groupId 群聊id
+     * @return
+     */
+    List<Long> findOnlineMemberIds(Long groupId);
 
     /**
      * 开启/关闭免打扰

@@ -10,8 +10,9 @@ import org.hibernate.validator.constraints.Length;
 @Schema(description = "私聊消息DTO")
 public class PrivateMessageDTO {
 
-    @Schema(description = "临时id")
-    private String tmpId;
+    @NotEmpty(message = "本地消息id不可为空")
+    @Schema(description = "本地消息id,前端通过雪花算法生成")
+    private String localId;
 
     @NotNull(message = "接收用户id不可为空")
     @Schema(description = "接收用户id")

@@ -14,8 +14,11 @@ public class GroupMessageVO {
     @Schema(description = "消息id")
     private Long id;
 
-    @Schema(description = "临时id")
-    private String tmpId;
+    @Schema(description = "本地消息id")
+    private String localId;
+
+    @Schema(description = "消息序列号，会话内连续递增")
+    private Long seqNo;
 
     @Schema(description = "群聊id")
     private Long groupId;
@@ -50,4 +53,7 @@ public class GroupMessageVO {
     @Schema(description = "发送时间")
     @JsonSerialize(using = DateToLongSerializer.class)
     private Date sendTime;
+
+    @Schema(description = " 是否删除")
+    private Boolean deleted;
 }

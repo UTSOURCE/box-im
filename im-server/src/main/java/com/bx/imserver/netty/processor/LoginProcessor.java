@@ -6,10 +6,8 @@ import com.alibaba.fastjson.JSON;
 import com.bx.imcommon.contant.IMConstant;
 import com.bx.imcommon.contant.IMRedisKey;
 import com.bx.imcommon.enums.IMCmdType;
-import com.bx.imcommon.model.IMForceLogoutInfo;
-import com.bx.imcommon.model.IMLoginInfo;
-import com.bx.imcommon.model.IMSendInfo;
-import com.bx.imcommon.model.IMSessionInfo;
+import com.bx.imcommon.enums.IMEventType;
+import com.bx.imcommon.model.*;
 import com.bx.imcommon.mq.RedisMQTemplate;
 import com.bx.imcommon.util.JwtUtil;
 import com.bx.imserver.constant.ChannelAttrKey;
@@ -90,6 +88,12 @@ public class LoginProcessor extends AbstractMessageProcessor<IMLoginInfo> {
         ctx.channel().attr(heartBeatAttr).set(0L);
         // 在redis上记录每个user的channelId，15秒没有心跳，则自动过期
         redisMQTemplate.opsForValue().set(key, IMServerGroup.serverId, IMConstant.ONLINE_TIMEOUT_SECOND, TimeUnit.SECONDS);
+        // 推送用户上线事件给业务层
+        IMUserEvent event = new IMUserEvent();
+        event.setEventType(IMEventType.ONLINE.code());
+        event.setUserInfo(new IMUserInfo(userId, terminal));
+        key = IMRedisKey.IM_USER_EVENT_QUEUE;
+        redisMQTemplate.opsForList().rightPush(key, event);
         // 响应ws
         IMSendInfo<Object> sendInfo = new IMSendInfo<>();
         sendInfo.setCmd(IMCmdType.LOGIN.code());

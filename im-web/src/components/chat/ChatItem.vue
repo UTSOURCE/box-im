@@ -1,24 +1,26 @@
 <template>
 	<div class="chat-item" :class="active ? 'active' : ''" @contextmenu.prevent="showRightMenu($event)">
 		<div class="chat-left">
-			<head-image :url="chat.headImage" :name="chat.showName" :size="42"
-				:id="chat.type == 'PRIVATE' ? chat.targetId : 0" :isShowUserInfo="false" :online="online"></head-image>
-			<div v-show="!chat.isDnd && chat.unreadCount > 0" class="unread-text">{{ chat.unreadCount }}</div>
+			<head-image :url="conversation.headImage" :name="conversation.showName" :size="42"
+				:id="isPrivate ? conversation.targetId : 0" :isShowUserInfo="false" :online="online"></head-image>
+			<div v-show="!conversation.isDnd && conversation.unreadCount > 0" class="unread-text">{{
+				conversation.unreadCount }}</div>
 		</div>
 		<div class="chat-right">
 			<div class="chat-name">
 				<div class="chat-name-text">
-					<div>{{ chat.showName }}</div>
-					<el-tag v-if="chat.type == 'GROUP'" type="primary" size="mini">群</el-tag>
+					<div>{{ conversation.showName }}</div>
+					<el-tag v-if="isGroup" type="primary" size="mini">群</el-tag>
+					<el-tag v-if="conversation.isTop" type="warning" size="mini">置顶</el-tag>
 				</div>
 				<div class="chat-time-text">{{ showTime }}</div>
 			</div>
 			<div class="chat-content">
 				<div class="chat-at-text">{{ atText }}</div>
-				<div class="chat-send-name" v-show="isShowSendName">{{ chat.sendNickName + ':&nbsp;' }}</div>
+				<div class="chat-send-name" v-show="isShowSendName">{{ conversation.sendNickName + ':&nbsp;' }}</div>
 				<div class="chat-content-text"
-					v-html="$emo.transform($str.html2Escape(chat.lastContent), 'emoji-small')"></div>
-				<div class="icon iconfont icon-dnd" v-if="chat.isDnd"></div>
+					v-html="$emo.transform($str.html2Escape(conversation.lastContent), 'emoji-small')"></div>
+				<div class="icon iconfont icon-dnd" v-if="conversation.isDnd"></div>
 			</div>
 		</div>
 		<right-menu ref="rightMenu" @select="onSelectMenu"></right-menu>
@@ -41,7 +43,7 @@ export default {
 		}
 	},
 	props: {
-		chat: {
+		conversation: {
 			type: Object
 		},
 		active: {
@@ -53,29 +55,20 @@ export default {
 			this.$refs.rightMenu.open(e, this.menuItems);
 		},
 		onSelectMenu(item) {
-			this.$emit(item.key.toLowerCase(), this.msgInfo);
+			this.$emit(item.key.toLowerCase(), this.conversation);
 		}
 	},
 	computed: {
 		isShowSendName() {
-			if (!this.chat.sendNickName) {
-				return false;
-			}
-			let size = this.chat.messages.length;
-			if (size == 0) {
-				return false;
-			}
-			// 只有群聊的普通消息需要显示名称
-			let lastMsg = this.chat.messages[size - 1];
-			return this.$msgType.isNormal(lastMsg.type)
+			return !!this.conversation.sendNickName;
 		},
 		showTime() {
-			return this.$date.toTimeText(this.chat.lastSendTime, true)
+			return this.$date.toTimeText(this.conversation.lastSendTime, true)
 		},
 		atText() {
-			if (this.chat.atMe) {
+			if (this.conversation.atMe) {
 				return "[有人@我]"
-			} else if (this.chat.atAll) {
+			} else if (this.conversation.atAll) {
 				return "[@全体成员]"
 			}
 			return "";
@@ -84,9 +77,9 @@ export default {
 			let items = [];
 			items.push({
 				key: 'TOP',
-				name: '置顶'
+				name: this.conversation.isTop ? '取消置顶' : '置顶'
 			});
-			if (this.chat.isDnd) {
+			if (this.conversation.isDnd) {
 				items.push({
 					key: 'DND',
 					name: '新消息提醒'
@@ -100,16 +93,22 @@ export default {
 			items.push({
 				key: 'DELETE',
 				name: '删除聊天',
-				color: '#F56C6C'
+				danger: true
 			})
 			return items;
 		},
 		online() {
-			if (this.chat.type == 'PRIVATE') {
-				let friend = this.friendStore.findFriend(this.chat.targetId);
+			if (this.isPrivate) {
+				let friend = this.friendStore.findFriend(this.conversation.targetId);
 				return friend && friend.online;
 			}
 			return false;
+		},
+		isPrivate() {
+			return this.$enums.CONVERSATION_TYPE.PRIVATE == this.conversation.type
+		},
+		isGroup() {
+			return this.$enums.CONVERSATION_TYPE.GROUP == this.conversation.type
 		}
 	}
 }
@@ -193,6 +192,7 @@ export default {
 		.chat-content {
 			display: flex;
 			line-height: 24px;
+			height: 24px;
 
 			.chat-at-text {
 				color: #c70b0b;

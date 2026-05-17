@@ -1,5 +1,5 @@
 <template>
-	<div class="chat-box" @click="closeRefBox()" @mousemove="readedMessage()">
+	<div class="chat-box" @click="onClickChatBox()" @mousemove="readedMessage()">
 		<el-container>
 			<el-header height="50px">
 				<span>{{ title }}</span>
@@ -10,17 +10,21 @@
 					<el-container class="content-box">
 						<el-main class="im-chat-main" id="chatScrollBox" @scroll="onScroll">
 							<div class="im-chat-box">
-								<div v-for="(msgInfo, idx) in showMessages" :key="showMinIdx + idx">
-									<chat-message-item @call="onCall(msgInfo.type)" :mine="msgInfo.sendId == mine.id"
-										:headImage="headImage(msgInfo)" :showName="showName(msgInfo)" :msgInfo="msgInfo"
-										:groupMembers="groupMembers" @resend="onResendMessage" @delete="deleteMessage"
-										@recall="recallMessage">
+								<div v-for="m in messages" :key="m.localId">
+									<chat-message-item :id="m.localId" :active="activeMessageLocalId == m.localId"
+										@call="onCall(m.type)" :mine="m.sendId == mine.id" :headImage="headImage(m)"
+										:showName="showName(m)" :group="group" :conversation="conversation" :message="m"
+										:groupMemberMap="groupMemberMap" @resend="onResendMessage"
+										@delete="deleteMessage" @recall="recallMessage">
 									</chat-message-item>
 								</div>
 							</div>
 						</el-main>
-						<div v-if="!isInBottom" class="scroll-to-bottom" @click="scrollToBottom">
-							{{ newMessageSize > 0 ? newMessageSize + '条新消息' : '回到底部' }}
+						<div v-if="conversation.atMe || conversation.atAll" class="locate-tip"
+							@click="scrollToAtMessage">
+							有人@我 </div>
+						<div v-else-if="!chatStore.isInBottom" class="locate-tip" @click="onScrollToBottom">
+							{{ chatStore.newMessageSize > 0 ? chatStore.newMessageSize + '条新消息' : '回到底部' }}
 						</div>
 						<el-footer height="220px" class="im-chat-footer">
 							<div class="chat-tool-bar">
@@ -54,7 +58,6 @@
 								<div title="视频通话" v-show="isPrivate" class="el-icon-video-camera"
 									@click="showPrivateVideo('video')">
 								</div>
-								<div title="聊天记录" class="el-icon-chat-dot-round" @click="showHistoryBox()"></div>
 							</div>
 							<div class="send-content-area">
 								<ChatInput :ownerId="group.ownerId" ref="chatInputEditor" :group-members="groupMembers"
@@ -63,6 +66,10 @@
 									<el-button type="primary" icon="el-icon-s-promotion"
 										@click="notifySend()">发送</el-button>
 								</div>
+							</div>
+							<div class="chat-editer-mask" v-if="notAllowInputTip">
+								<span class="icon el-icon-warning"></span>
+								<span>{{ notAllowInputTip }}</span>
 							</div>
 						</el-footer>
 					</el-container>
@@ -76,8 +83,6 @@
 			<chat-record :visible="showRecord" @close="closeRecordBox" @send="onSendRecord"></chat-record>
 			<group-member-selector ref="rtcSel" :group="group" @complete="onInviteOk"></group-member-selector>
 			<rtc-group-join ref="rtcJoin" :groupId="group.id"></rtc-group-join>
-			<chat-history :visible="showHistory" :chat="chat" :friend="friend" :group="group"
-				:groupMembers="groupMembers" @close="closeHistoryBox"></chat-history>
 		</el-container>
 	</div>
 </template>
@@ -88,7 +93,6 @@ import ChatMessageItem from "./ChatMessageItem.vue";
 import FileUpload from "../common/FileUpload.vue";
 import Emotion from "../common/Emotion.vue";
 import ChatRecord from "./ChatRecord.vue";
-import ChatHistory from "./ChatHistory.vue";
 import ChatAtBox from "./ChatAtBox.vue"
 import GroupMemberSelector from "../group/GroupMemberSelector.vue"
 import RtcGroupJoin from "../rtc/RtcGroupJoin.vue"
@@ -104,45 +108,32 @@ export default {
 		ChatGroupSide,
 		Emotion,
 		ChatRecord,
-		ChatHistory,
 		ChatAtBox,
 		GroupMemberSelector,
 		RtcGroupJoin
 	},
 	props: {
-		chat: {
+		conversation: {
 			type: Object
 		}
 	},
 	data() {
 		return {
 			userInfo: {},
-			group: {},
-			groupMembers: [],
-			sendImageUrl: "",
-			sendImageFile: "",
-			placeholder: "",
+			groupId: null,
 			isReceipt: true,
 			showRecord: false, // 是否显示语音录制弹窗
 			showSide: false, // 是否显示群聊信息栏
-			showHistory: false, // 是否显示历史聊天记录
-			lockMessage: false, // 是否锁定发送，
-			showMinIdx: 0, // 下标低于showMinIdx的消息不显示，否则页面会很卡置
+			activeMessageLocalId: '', //选中消息
 			reqQueue: [], // 等待发送的请求队列
 			isSending: false, // 是否正在发消息
-			isInBottom: false, // 滚动条是否在底部
-			newMessageSize: 0, // 滚动条不在底部时新的消息数量
-			maxTmpId: 0 // 最后生成的临时ID
+			lastScrollTime: 0
 		}
 	},
 	methods: {
-		moveChatToTop() {
-			let chatIdx = this.chatStore.findChatIdx(this.chat);
-			this.chatStore.moveTop(chatIdx);
-		},
-		closeRefBox() {
+		onClickChatBox() {
+			// 关闭表情窗口
 			this.$refs.emoBox.close();
-			// this.$refs.atBox.close();
 		},
 		onCall(type) {
 			if (type == this.$enums.MESSAGE_TYPE.ACT_RT_VOICE) {
@@ -153,144 +144,124 @@ export default {
 		},
 		onSwitchReceipt() {
 			this.isReceipt = !this.isReceipt;
-			this.refreshPlaceHolder();
 		},
-		onImageSuccess(data, file) {
-			let msgInfo = JSON.parse(JSON.stringify(file.msgInfo));
-			msgInfo.content = JSON.stringify(data);
-			msgInfo.receipt = this.isReceipt;
-			this.sendMessageRequest(msgInfo).then((m) => {
-				msgInfo.id = m.id;
-				msgInfo.status = m.status;
-				this.isReceipt = false;
-				this.chatStore.updateMessage(msgInfo, file.chat);
-			}).catch(() => {
-				msgInfo.status = this.$enums.MESSAGE_STATUS.FAILED;
-				this.chatStore.updateMessage(msgInfo, file.chat);
-			})
-		},
-		onImageFail(e, file) {
-			let msgInfo = JSON.parse(JSON.stringify(file.msgInfo));
-			msgInfo.status = this.$enums.MESSAGE_STATUS.FAILED;
-			this.chatStore.updateMessage(msgInfo, file.chat);
-		},
-		onImageBefore(file) {
-			// 被封禁提示
-			if (this.isBanned) {
-				this.showBannedTip();
-				return;
-			}
-			let url = URL.createObjectURL(file);
-			let data = {
+		async onImageBefore(file) {
+			const url = URL.createObjectURL(file);
+			const data = {
 				originUrl: url,
 				thumbUrl: url
 			}
-			let msgInfo = {
-				tmpId: this.generateId(),
-				fileId: file.uid,
-				sendId: this.mine.id,
+			const message = {
+				localId: this.$nextSnowflakeId(),
 				content: JSON.stringify(data),
-				sendTime: new Date().getTime(),
-				selfSend: true,
 				type: this.$enums.MESSAGE_TYPE.IMAGE,
-				readedCount: 0,
-				status: this.$enums.MESSAGE_STATUS.SENDING
+				receipt: this.isReceipt
 			}
 			// 填充对方id
-			this.fillTargetId(msgInfo, this.chat.targetId);
+			this.fillTargetId(message, this.conversation.targetId);
+			this.isReceipt = false;
+			// 本地消息
+			const localMessage = this.buildLocalMessage(message);
 			// 插入消息
-			this.chatStore.insertMessage(msgInfo, this.chat);
-			// 会话置顶
-			this.moveChatToTop();
+			await this.insertMessage(localMessage)
 			// 借助file对象保存
-			file.msgInfo = msgInfo;
-			file.chat = this.chat;
+			file.message = message;
+			file.localMessage = localMessage;
+			file.conversation = this.conversation;
 			// 更新图片尺寸
-			let chat = this.chat;
-			this.getImageSize(file).then(size => {
-				data.width = size.width;
-				data.height = size.height;
-				msgInfo.content = JSON.stringify(data)
-				this.chatStore.updateMessage(msgInfo, chat);
-				this.scrollToBottom();
-			})
+			const size = await this.getImageSize(file)
+			data.width = size.width;
+			data.height = size.height;
+			localMessage.content = JSON.stringify(data)
+			await this.chatStore.updateMessage(this.conversation.key, localMessage);
+			this.scrollToBottom();
 		},
-		onFileSuccess(url, file) {
-			let data = {
+		async onImageSuccess(data, file) {
+			const message = file.message;
+			message.content = JSON.stringify(data);
+			await this.processSendMessage(file.conversation, message, file.localMessage);
+		},
+		async onImageFail(e, file) {
+			const localMessage = file.localMessage;
+			localMessage.status = this.$enums.MESSAGE_STATUS.FAILED;
+			await this.chatStore.updateMessage(this.conversation.key, localMessage);
+		},
+		async onFileBefore(file) {
+			const url = URL.createObjectURL(file);
+			const data = {
 				name: file.name,
 				size: file.size,
 				url: url
 			}
-			let msgInfo = JSON.parse(JSON.stringify(file.msgInfo));
-			msgInfo.content = JSON.stringify(data);
-			msgInfo.receipt = this.isReceipt
-			this.sendMessageRequest(msgInfo).then((m) => {
-				msgInfo.id = m.id;
-				msgInfo.status = m.status;
-				this.isReceipt = false;
-				this.refreshPlaceHolder();
-				this.chatStore.updateMessage(msgInfo, file.chat);
-			}).catch(() => {
-				msgInfo.status = this.$enums.MESSAGE_STATUS.FAILED;
-				this.chatStore.updateMessage(msgInfo, file.chat);
-			})
-		},
-		onFileFail(e, file) {
-			let msgInfo = JSON.parse(JSON.stringify(file.msgInfo));
-			msgInfo.status = this.$enums.MESSAGE_STATUS.FAILED;
-			this.chatStore.updateMessage(msgInfo, file.chat);
-		},
-		onFileBefore(file) {
-			// 被封禁提示
-			if (this.isBanned) {
-				this.showBannedTip();
-				return;
-			}
-			let url = URL.createObjectURL(file);
-			let data = {
-				name: file.name,
-				size: file.size,
-				url: url
-			}
-			let msgInfo = {
-				tmpId: this.generateId(),
-				sendId: this.mine.id,
+			const message = {
+				localId: this.$nextSnowflakeId(),
 				content: JSON.stringify(data),
-				sendTime: new Date().getTime(),
-				selfSend: true,
 				type: this.$enums.MESSAGE_TYPE.FILE,
-				readedCount: 0,
-				status: this.$enums.MESSAGE_STATUS.SENDING
+				receipt: this.isReceipt
 			}
 			// 填充对方id
-			this.fillTargetId(msgInfo, this.chat.targetId);
+			this.fillTargetId(message, this.conversation.targetId);
+			this.isReceipt = false;
+			// 本地消息
+			const localMessage = this.buildLocalMessage(message);
 			// 插入消息
-			this.chatStore.insertMessage(msgInfo, this.chat);
-			// 会话置顶
-			this.moveChatToTop();
-			// 借助file对象透传
-			file.msgInfo = msgInfo;
-			file.chat = this.chat;
+			await this.insertMessage(localMessage)
+			// 借助file对象保存
+			file.message = message;
+			file.localMessage = localMessage;
+			file.conversation = this.conversation;
+		},
+		async onFileSuccess(url, file) {
+			const data = {
+				name: file.name,
+				size: file.size,
+				url: url
+			}
+			const message = file.message;
+			message.content = JSON.stringify(data);
+			await this.processSendMessage(file.conversation, message, file.localMessage);
+		},
+		async onFileFail(e, file) {
+			const localMessage = file.localMessage;
+			localMessage.status = this.$enums.MESSAGE_STATUS.FAILED;
+			await this.chatStore.updateMessage(this.conversation.key, localMessage);
 		},
 		onCloseSide() {
 			this.showSide = false;
 		},
-		onScrollToTop() {
-			// 多展示10条信息
-			this.showMinIdx = this.showMinIdx > 10 ? this.showMinIdx - 10 : 0;
-		},
-		onScroll(e) {
+		async onScroll(e) {
 			let scrollElement = e.target
 			let scrollTop = scrollElement.scrollTop
-			if (scrollTop < 30) { // 在顶部,不滚动的情况
-				// 多展示20条信息
-				this.showMinIdx = this.showMinIdx > 20 ? this.showMinIdx - 20 : 0;
-				this.isInBottom = false;
+			// 滚到顶部
+			if (scrollTop < 30) {
+				if (new Date().getTime() - this.lastScrollTime < 500) {
+					return;
+				}
+				this.lastScrollTime = new Date().getTime();
+				if (!this.chatStore.hasMoreLastMessage) {
+					this.$message.success("没有更多消息了");
+					return;
+				}
+				const hst = scrollElement.scrollHeight;
+				await this.chatStore.loadLastPageMessage(this.conversation.key, 30);
+				await this.$nextTick();
+				// 恢复滚动条位置
+				scrollElement.scrollTop = scrollElement.scrollHeight - hst;
+				// 清除底部标志
+				this.chatStore.setIsInBottom(false);
 			}
 			// 滚到底部
 			if (scrollTop + scrollElement.clientHeight >= scrollElement.scrollHeight - 30) {
-				this.isInBottom = true;
-				this.newMessageSize = 0;
+				if (new Date().getTime() - this.lastScrollTime < 500) {
+					return;
+				}
+				this.lastScrollTime = new Date().getTime();
+				if (this.chatStore.hasMoreNextMessage) {
+					// 向下翻页
+					await this.chatStore.loadNextPageMessage(this.conversation.key, 30);
+				}
+				// 设置底部标志
+				this.chatStore.setIsInBottom(!this.chatStore.hasMoreNextMessage);
 			}
 		},
 		showEmotionBox() {
@@ -312,12 +283,10 @@ export default {
 			this.showRecord = false;
 		},
 		showPrivateVideo(mode) {
-			// 检查是否被封禁
-			if (this.isBanned) {
-				this.showBannedTip();
+			if (this.notAllowInputTip) {
+				this.$message.warning(this.notAllowInputTip);
 				return;
 			}
-
 			let rtcInfo = {
 				mode: mode,
 				isHost: true,
@@ -327,11 +296,6 @@ export default {
 			this.$eventBus.$emit("openPrivateVideo", rtcInfo);
 		},
 		onGroupVideo() {
-			// 检查是否被封禁
-			if (this.isBanned) {
-				this.showBannedTip();
-				return;
-			}
 			// 邀请成员发起通话
 			let ids = [this.mine.id];
 			let maxChannel = this.configStore.webrtc.maxChannel;
@@ -348,7 +312,8 @@ export default {
 					nickName: m.showNickName,
 					headImage: m.headImage,
 					isCamera: false,
-					isMicroPhone: true
+					isMicroPhone: true,
+					isShareScreen: false
 				})
 			})
 			let rtcInfo = {
@@ -360,57 +325,30 @@ export default {
 			// 通过home.vue打开多人视频窗口
 			this.$eventBus.$emit("openGroupVideo", rtcInfo);
 		},
-		showHistoryBox() {
-			this.showHistory = true;
-		},
-		closeHistoryBox() {
-			this.showHistory = false;
-		},
-		onSendRecord(data) {
-			// 检查是否被封禁
-			if (this.isBanned) {
-				this.showBannedTip();
-				return;
-			}
-			let msgInfo = {
-				tmpId: this.generateId(),
+		async onSendRecord(data) {
+			const message = {
+				localId: this.$nextSnowflakeId(),
 				content: JSON.stringify(data),
 				type: this.$enums.MESSAGE_TYPE.AUDIO,
 				receipt: this.isReceipt
 			}
 			// 填充对方id
-			this.fillTargetId(msgInfo, this.chat.targetId);
-			// 防止发送期间用户切换会话导致串扰
-			const chat = this.chat;
-			// 临时消息回显	
-			let tmpMessage = this.buildTmpMessage(msgInfo);
-			this.chatStore.insertMessage(tmpMessage, chat);
-			this.moveChatToTop();
-			this.sendMessageRequest(msgInfo).then(m => {
-				// 更新消息
-				tmpMessage.id = m.id;
-				tmpMessage.status = m.status;
-				this.chatStore.updateMessage(tmpMessage, chat);
-				// 会话置顶
-				this.moveChatToTop();
-				// 保持输入框焦点
-				this.$refs.chatInputEditor.focus();
-				// 滚动到底部
-				this.scrollToBottom();
-				// 关闭录音窗口
-				this.showRecord = false;
-				this.isReceipt = false;
-				this.refreshPlaceHolder();
-			}).catch(() => {
-				tmpMessage.status = this.$enums.MESSAGE_STATUS.FAILED;
-				this.chatStore.updateMessage(tmpMessage, this.chat);
-			})
+			this.fillTargetId(message, this.conversation.targetId);
+			this.isReceipt = false;
+			// 本地消息	
+			const localMessage = this.buildLocalMessage(message);
+			await this.insertMessage(localMessage);
+			await this.processSendMessage(this.conversation, message, localMessage);
+			// 关闭录音窗口
+			this.showRecord = false;
+			// 保持输入框焦点
+			this.$refs.chatInputEditor.focus();
 		},
-		fillTargetId(msgInfo, targetId) {
-			if (this.chat.type == "GROUP") {
-				msgInfo.groupId = targetId;
+		fillTargetId(message, targetId) {
+			if (this.isGroup) {
+				message.groupId = targetId;
 			} else {
-				msgInfo.recvId = targetId;
+				message.recvId = targetId;
 			}
 		},
 		notifySend() {
@@ -419,12 +357,7 @@ export default {
 		async sendMessage(fullList) {
 			this.resetEditor();
 			this.readedMessage();
-			// 检查是否被封禁
-			if (this.isBanned) {
-				this.showBannedTip();
-				return;
-			}
-			let sendText = this.isReceipt ? "【回执消息】" : "";
+			let sendText = this.isReceipt ? '【回执消息】' : "";
 			fullList.forEach(async msg => {
 				switch (msg.type) {
 					case "text":
@@ -439,212 +372,216 @@ export default {
 				}
 			})
 		},
-		sendImageMessage(file) {
-			return new Promise((resolve, reject) => {
-				this.onImageBefore(file);
-				let formData = new FormData()
-				formData.append('file', file)
-				this.$http.post("/image/upload?isPermanent=false", formData, {
-					headers: {
-						'Content-Type': 'multipart/form-data'
-					}
-				}).then((data) => {
-					this.onImageSuccess(data, file);
-					resolve();
-				}).catch((res) => {
-					this.onImageFail(res, file);
-					reject();
-				})
-				this.$nextTick(() => this.$refs.chatInputEditor.focus());
-				this.scrollToBottom();
-			});
-		},
-		sendTextMessage(sendText, atUserIds) {
-			return new Promise((resolve, reject) => {
-				if (!sendText.trim()) {
-					reject();
+		async sendImageMessage(file) {
+			await this.onImageBefore(file);
+			const formData = new FormData()
+			formData.append('file', file)
+			this.$http.post("/image/upload?isPermanent=false", formData, {
+				headers: {
+					'Content-Type': 'multipart/form-data'
 				}
-				let msgInfo = {
-					tmpId: this.generateId(),
-					content: sendText,
-					type: this.$enums.MESSAGE_TYPE.TEXT
-				}
-				// 填充对方id
-				this.fillTargetId(msgInfo, this.chat.targetId);
-				// 被@人员列表
-				if (this.chat.type == "GROUP") {
-					msgInfo.atUserIds = atUserIds;
-					msgInfo.receipt = this.isReceipt;
-				}
-				this.lockMessage = true;
-				// 防止发送期间用户切换会话导致串扰
-				const chat = this.chat;
-				// 回显消息
-				let tmpMessage = this.buildTmpMessage(msgInfo);
-				this.chatStore.insertMessage(tmpMessage, chat);
-				this.moveChatToTop();
-				// 发送
-				this.sendMessageRequest(msgInfo).then((m) => {
-					// 更新消息
-					tmpMessage.id = m.id;
-					tmpMessage.status = m.status;
-					tmpMessage.content = m.content;
-					this.chatStore.updateMessage(tmpMessage, chat);
-				}).catch(() => {
-					// 更新消息
-					tmpMessage.status = this.$enums.MESSAGE_STATUS.FAILED;
-					this.chatStore.updateMessage(tmpMessage, chat);
-				}).finally(() => {
-					this.isReceipt = false;
-					resolve();
-				});
-			});
-		},
-		sendFileMessage(file) {
-			return new Promise((resolve, reject) => {
-				let check = this.$refs.fileUpload.beforeUpload(file);
-				if (check) {
-					this.$refs.fileUpload.onFileUpload({ file });
-				}
+			}).then((data) => {
+				this.onImageSuccess(data, file);
+			}).catch((res) => {
+				this.onImageFail(res, file);
 			})
+			this.$nextTick(() => this.$refs.chatInputEditor.focus());
+			this.scrollToBottom();
 		},
-		onResendMessage(msgInfo) {
-			if (msgInfo.type != this.$enums.MESSAGE_TYPE.TEXT) {
-				this.$message.error("该消息不支持自动重新发送，建议手动重新发送")
+		async sendTextMessage(sendText, atUserIds) {
+			if (!sendText.trim()) {
 				return;
 			}
-			// 防止发送期间用户切换会话导致串扰
-			const chat = this.chat;
-			// 删除旧消息
-			this.chatStore.deleteMessage(msgInfo, chat);
-			// 重新推送
-			msgInfo.tmpId = this.generateId();
-			let tmpMessage = this.buildTmpMessage(msgInfo);
-			this.chatStore.insertMessage(tmpMessage, chat);
-			this.moveChatToTop();
+			const message = {
+				localId: this.$nextSnowflakeId(),
+				content: sendText,
+				type: this.$enums.MESSAGE_TYPE.TEXT
+			}
+			// 填充对方id
+			this.fillTargetId(message, this.conversation.targetId);
+			// 被@人员列表
+			if (this.isGroup) {
+				message.atUserIds = atUserIds;
+				message.receipt = this.isReceipt;
+			}
+			// 本地消息
+			const localMessage = this.buildLocalMessage(message);
+			await this.insertMessage(localMessage);
+			// 清空标志
+			this.isReceipt = false;
 			// 发送
-			this.sendMessageRequest(msgInfo).then(m => {
-				// 更新消息
-				tmpMessage.id = m.id;
-				tmpMessage.status = m.status;
-				tmpMessage.content = m.content;
-				this.chatStore.updateMessage(tmpMessage, chat);
-			}).catch(() => {
-				// 更新消息
-				tmpMessage.status = this.$enums.MESSAGE_STATUS.FAILED;
-				this.chatStore.updateMessage(tmpMessage, chat);
-			}).finally(() => {
-				this.scrollToBottom();
-			});
+			await this.processSendMessage(this.conversation, message, localMessage);
 		},
-		deleteMessage(msgInfo) {
+		async sendFileMessage(file) {
+			let check = this.$refs.fileUpload.beforeUpload(file);
+			if (check) {
+				this.$refs.fileUpload.onFileUpload({ file });
+			}
+		},
+		async onResendMessage(message) {
+			if (message.type != this.$enums.MESSAGE_TYPE.TEXT) {
+				this.$message.error('该消息不支持自动重新发送，建议手动重新发送')
+				return;
+			}
+			// 删除旧消息
+			await this.chatStore.deleteMessage(this.conversation.key, message);
+			// 重新推送
+			const sendMessage = JSON.parse(JSON.stringify(message));
+			sendMessage.localId = this.$nextSnowflakeId();
+			const localMessage = this.buildLocalMessage(sendMessage);
+			await this.insertMessage(localMessage);
+			await this.processSendMessage(this.conversation, sendMessage, localMessage);
+		},
+		deleteMessage(message) {
 			this.$confirm('确认删除消息?', '删除消息', {
 				confirmButtonText: '确定',
 				cancelButtonText: '取消',
 				type: 'warning'
-			}).then(() => {
-				this.chatStore.deleteMessage(msgInfo, this.chat);
+			}).then(async () => {
+				const convKey = this.conversation.key;
+				if (message.id) {
+					const data = {
+						chatId: this.conversation.targetId,
+						messageIds: [message.id]
+					}
+					await this.$http({
+						url: `/message/${this.chatTypeText(this.conversation)}/deleteMessage`,
+						method: 'delete',
+						data: data
+					});
+				}
+				this.chatStore.deleteMessage(convKey, message);
 			});
 		},
-		recallMessage(msgInfo) {
+		recallMessage(message) {
 			this.$confirm('确认撤回消息?', '撤回消息', {
 				confirmButtonText: '确定',
 				cancelButtonText: '取消',
 				type: 'warning'
 			}).then(() => {
-				let url = `/message/${this.chat.type.toLowerCase()}/recall/${msgInfo.id}`
+				let url = `/message/${this.chatTypeText()}/recall/${message.id}`
 				this.$http({
 					url: url,
 					method: 'delete'
 				}).then((m) => {
 					this.$message.success("消息已撤回");
 					m.selfSend = true;
-					this.chatStore.recallMessage(m, this.chat);
+					this.chatStore.recallMessage(this.conversation.key, m);
 				})
 			});
 		},
-		readedMessage() {
-			if (this.chat.unreadCount > 0) {
-				if (this.isGroup) {
-					var url = `/message/group/readed?groupId=${this.chat.targetId}&messageId=${this.maxMessageId}`
+		async locateMessage(message) {
+			const localId = message.localId;
+			const locateMessage = await this.$db.findMessageByLocalId(localId);
+			if (!locateMessage || locateMessage.deleted || this.isRecall(locateMessage)) {
+				this.$message.error('无法定位原消息');
+				return;
+			}
+			await this.chatStore.locateToMessage(this.conversation.key, locateMessage)
+			// 定位消息
+			this.scrollToMessage(localId, 100, 0);
+			// 选中消息
+			this.activeMessageLocalId = localId;
+			// 设置底部标记
+			this.chatStore.setIsInBottom(!this.chatStore.hasMoreNextMessage);
+		},
+		scrollToMessage(id, delay, times) {
+			setTimeout(() => {
+				const messgaeItem = document.getElementById(id);
+				if (messgaeItem) {
+					messgaeItem.scrollIntoView({ behavior: 'smooth' });
+				} else if (times < 3) {
+					this.scrollToMessage(id, delay * 3, times + 1)
 				} else {
-					url = `/message/private/readed?friendId=${this.chat.targetId}`
+					console.log("消息定位失败", delay)
 				}
-				this.$http({
+			}, delay)
+		},
+		async scrollToAtMessage() {
+			if (this.conversation.lastAtMessageId < 0) {
+				return;
+			}
+			const atMessage = await this.$db.findMessageById(this.conversation.lastAtMessageId);
+			if (!atMessage) {
+				this.$message.error('无法定位原消息');
+				return;
+			}
+			await this.locateMessage(atMessage);
+			await this.chatStore.resetAtMessage(this.conversation.key);
+		},
+		async readedMessage() {
+			if (this.conversation.unreadCount > 0) {
+				const convKey = this.conversation.key;
+				this.chatStore.resetUnreadCount(convKey);
+				const tid = this.conversation.targetId;
+				let url = "";
+				if (this.isGroup) {
+					url = `/message/group/readed?groupId=${tid}&messageId=${this.maxMessageId}`;
+				} else {
+					url = `/message/private/readed?friendId=${tid}&messageId=${this.maxMessageId}`;
+				}
+				await this.$http({
 					url: url,
 					method: 'put'
-				}).then(() => { })
-				this.chatStore.resetUnreadCount(this.chat)
+				})
 			}
 		},
-		loadReaded(fId) {
-			this.$http({
+		async loadReaded(fId) {
+			const convKey = this.conversation.key;
+			const messageId = await this.$http({
 				url: `/message/private/maxReadedId?friendId=${fId}`,
 				method: 'get'
-			}).then((id) => {
-				this.chatStore.readedMessage({
-					friendId: fId,
-					maxId: id
-				});
-			});
+			})
+			this.chatStore.readedMessage(convKey, messageId);
 		},
-		loadGroup(groupId) {
-			this.$http({
+		async loadGroup(groupId) {
+			this.groupId = groupId;
+			const group = await this.$http({
 				url: `/group/find/${groupId}`,
 				method: 'get'
-			}).then((group) => {
-				this.group = group;
-				this.chatStore.updateChatFromGroup(group);
-				this.groupStore.updateGroup(group);
-			});
-
-			this.$http({
-				url: `/group/members/${groupId}`,
-				method: 'get'
-			}).then((groupMembers) => {
-				this.groupMembers = groupMembers;
-			});
+			})
+			await this.chatStore.updateFromGroup(group);
+			this.groupStore.updateGroup(group);
+			this.groupStore.refreshMember(groupId);
 		},
-		updateFriendInfo() {
+		async updateFriendInfo() {
 			if (this.isFriend) {
 				// store的数据不能直接修改，深拷贝一份store的数据
-				let friend = JSON.parse(JSON.stringify(this.friend));
+				const friend = JSON.parse(JSON.stringify(this.friend));
 				friend.headImage = this.userInfo.headImageThumb;
 				friend.nickName = this.userInfo.nickName;
-				friend.showNickName = friend.remarkNickName ? friend.remarkNickName : friend.nickName;
-				this.chatStore.updateChatFromFriend(friend);
+				await this.chatStore.updateFromFriend(friend);
 				this.friendStore.updateFriend(friend);
 			} else {
-				this.chatStore.updateChatFromUser(this.userInfo);
+				await this.chatStore.updateFromUser(this.userInfo);
 			}
 		},
-		loadFriend(friendId) {
+		async loadFriend(friendId) {
 			// 获取好友信息
-			this.$http({
+			const userInfo = await this.$http({
 				url: `/user/find/${friendId}`,
 				method: 'GET'
-			}).then((userInfo) => {
-				this.userInfo = userInfo;
-				this.updateFriendInfo();
-			})
+			});
+			this.userInfo = userInfo;
+			await this.updateFriendInfo();
 		},
-		showName(msgInfo) {
-			if (!msgInfo) {
-				return ""
-			}
+		showName(message) {
+			if (!message) return "";
 			if (this.isGroup) {
-				let member = this.groupMembers.find((m) => m.userId == msgInfo.sendId);
-				return member ? member.showNickName : msgInfo.sendNickName || "";
+				const member = this.groupMemberMap.get(message.sendId);
+				return member ? member.showNickName : "";
+			} else if (message.sendId == this.mine.id) {
+				return this.mine.nickName;
 			} else {
-				return msgInfo.selfSend ? this.mine.nickName : this.chat.showName
+				return this.conversation.showName;
 			}
 		},
-		headImage(msgInfo) {
+		headImage(message) {
 			if (this.isGroup) {
-				let member = this.groupMembers.find((m) => m.userId == msgInfo.sendId);
+				const member = this.groupMemberMap.get(message.sendId);
 				return member ? member.headImage : "";
 			} else {
-				return msgInfo.sendId == this.mine.id ? this.mine.headImageThumb : this.chat.headImage
+				return message.selfSend ? this.mine.headImageThumb : this.conversation.headImage
 			}
 		},
 		resetEditor() {
@@ -653,25 +590,36 @@ export default {
 				this.$refs.chatInputEditor.focus();
 			});
 		},
-		scrollToBottom() {
+		async onScrollToBottom() {
+			await this.chatStore.resetMessages(this.conversation.key);
+			this.scrollToBottom();
+		},
+		async scrollToBottom() {
 			this.$nextTick(() => {
 				let div = document.getElementById("chatScrollBox");
 				div.scrollTop = div.scrollHeight;
+				this.chatStore.setIsInBottom(true);
 			});
 		},
-		refreshPlaceHolder() {
-			if (this.isReceipt) {
-				this.placeholder = "【回执消息】"
-			} else if (this.$refs.editBox && this.$refs.editBox.innerHTML) {
-				this.placeholder = ""
-			} else {
-				this.placeholder = "聊点什么吧~";
+		async processSendMessage(conv, message, localMessage) {
+			// 发送
+			const m = await this.sendMessageRequest(conv, message).catch(async (e) => {
+				// 更新本地消息
+				localMessage.status = this.$enums.MESSAGE_STATUS.FAILED;
+				await this.chatStore.updateMessage(conv.key, localMessage);
+			})
+			if (m) {
+				// 更新本地消息
+				m.selfSend = true;
+				m.convKey = conv.key;
+				await this.chatStore.updateMessage(conv.key, m);
 			}
 		},
-		sendMessageRequest(msgInfo) {
+		sendMessageRequest(conv, message) {
 			return new Promise((resolve, reject) => {
 				// 请求入队列，防止请求"后发先至"，导致消息错序
-				this.reqQueue.push({ msgInfo, resolve, reject });
+				const action = this.messageAction(conv)
+				this.reqQueue.push({ action, message, resolve, reject });
 				this.processReqQueue();
 			})
 		},
@@ -680,9 +628,9 @@ export default {
 				this.isSending = true;
 				const reqData = this.reqQueue.shift();
 				this.$http({
-					url: this.messageAction,
+					url: reqData.action,
 					method: 'post',
-					data: reqData.msgInfo
+					data: reqData.message
 				}).then((res) => {
 					reqData.resolve(res)
 				}).catch((e) => {
@@ -694,32 +642,18 @@ export default {
 				})
 			}
 		},
-		showBannedTip() {
-			let msgInfo = {
-				tmpId: this.generateId(),
-				sendId: this.mine.id,
-				sendTime: new Date().getTime(),
-				type: this.$enums.MESSAGE_TYPE.TIP_TEXT
-			}
-			if (this.chat.type == "PRIVATE") {
-				msgInfo.recvId = this.mine.id
-				msgInfo.content = "该用户已被管理员封禁,原因:" + this.userInfo.reason
-			} else {
-				msgInfo.groupId = this.group.id;
-				msgInfo.content = "本群聊已被管理员封禁,原因:" + this.group.reason
-			}
-			this.chatStore.insertMessage(msgInfo, this.chat);
-		},
-		buildTmpMessage(msgInfo) {
-			let message = JSON.parse(JSON.stringify(msgInfo));
-			message.sendId = this.mine.id;
-			message.sendTime = new Date().getTime();
-			message.status = this.$enums.MESSAGE_STATUS.SENDING;
-			message.selfSend = true;
+		buildLocalMessage(message) {
+			const m = JSON.parse(JSON.stringify(message));
+			m.convKey = this.conversation.key;
+			m.seqNo = Math.max(1, this.conversation.maxSeqNo);
+			m.sendId = this.mine.id;
+			m.sendTime = new Date().getTime();
+			m.status = this.$enums.MESSAGE_STATUS.SENDING;
+			m.selfSend = true;
 			if (this.isGroup) {
-				message.readedCount = 0;
+				m.readedCount = 0;
 			}
-			return message;
+			return m;
 		},
 		getImageSize(file) {
 			return new Promise((resolve, reject) => {
@@ -740,15 +674,23 @@ export default {
 				reader.readAsDataURL(file);
 			});
 		},
-		generateId() {
-			// 生成临时id 
-			const id = String(new Date().getTime()) + String(Math.floor(Math.random() * 1000));
-			// 必须保证id是递增
-			if (this.maxTmpId > id) {
-				return this.generateId();
+		async insertMessage(message) {
+			if (!this.chatStore.isInBottom) {
+				await this.chatStore.resetMessages(this.conversation.key);
 			}
-			this.maxTmpId = id;
-			return id;
+			await this.chatStore.insertMessage(this.conversation.key, message)
+			await this.chatStore.moveTop(this.conversation.key);
+			this.scrollToBottom();
+		},
+		messageAction(conv) {
+			return `/message/${this.chatTypeText(conv)}/send`;
+		},
+		chatTypeText(conv) {
+			conv = conv ? conv : this.conversation;
+			return conv.type == this.$enums.CONVERSATION_TYPE.PRIVATE ? "private" : "group";
+		},
+		isRecall(m) {
+			return m.status == this.$enums.MESSAGE_STATUS.RECALL;
 		}
 	},
 	computed: {
@@ -759,112 +701,99 @@ export default {
 			return this.friendStore.isFriend(this.userInfo.id);
 		},
 		friend() {
-			return this.friendStore.findFriend(this.userInfo.id)
+			return this.friendStore.findFriend(this.userInfo.id) || {}
+		},
+		group() {
+			return this.groupStore.findGroup(this.groupId) || {}
+		},
+		groupMembers() {
+			return this.group.members || [];
+		},
+		groupMemberMap() {
+			return new Map(this.groupMembers.map(m => [m.userId, m]));
 		},
 		title() {
-			let title = this.chat.showName;
-			if (this.chat.type == "GROUP") {
+			let title = this.conversation.showName;
+			if (this.isGroup) {
 				let size = this.groupMembers.filter(m => !m.quit).length;
 				title += `(${size})`;
 			}
 			return title;
 		},
-		messageAction() {
-			return `/message/${this.chat.type.toLowerCase()}/send`;
-		},
 		unreadCount() {
-			return this.chat.unreadCount;
+			return this.conversation.unreadCount;
 		},
-		showMessages() {
-			return this.chat.messages.slice(this.showMinIdx)
-		},
-		messageSize() {
-			if (!this.chat || !this.chat.messages) {
-				return 0;
-			}
-			return this.chat.messages.length;
-		},
-		isBanned() {
-			return (this.chat.type == "PRIVATE" && this.userInfo.isBanned) ||
-				(this.chat.type == "GROUP" && this.group.isBanned)
+		messages() {
+			return this.chatStore.messages;
 		},
 		memberSize() {
 			return this.groupMembers.filter(m => !m.quit).length;
 		},
-		isGroup() {
-			return this.chat.type == 'GROUP';
-		},
 		isPrivate() {
-			return this.chat.type == 'PRIVATE';
+			return this.$enums.CONVERSATION_TYPE.PRIVATE == this.conversation.type
+		},
+		isGroup() {
+			return this.$enums.CONVERSATION_TYPE.GROUP == this.conversation.type
 		},
 		loading() {
 			return this.chatStore.loading;
 		},
 		maxMessageId() {
-			for (let idx = this.chat.messages.length - 1; idx >= 0; idx--) {
-				const message = this.chat.messages[idx];
-				if (message.id) {
-					return message.id;
-				}
-			}
-			return 0;
+			return this.conversation.maxMessageId;
 		},
+		notAllowInputTip() {
+			if (this.isGroup) {
+				if (this.group.dissolve) {
+					return '群聊已解散';
+				} else if (this.group.quit) {
+					return '您已不在群聊中';
+				} else if (this.group.isBanned) {
+					return '群聊已被封禁' + (this.group.reason ? '，原因：' + this.group.reason : '');
+				}
+			} else if (this.userInfo.isBanned) {
+				return '对方账号已被封禁' + (this.userInfo.reason ? '，原因：' + this.userInfo.reason : '');
+			}
+			return '';
+		}
 	},
 	watch: {
-		chat: {
-			handler(newChat, oldChat) {
-				if (newChat.targetId > 0 && (!oldChat || newChat.type != oldChat.type ||
-					newChat.targetId != oldChat.targetId)) {
+		conversation: {
+			async handler(newConv, oldConv) {
+				if (!oldConv || newConv.key != oldConv.key) {
 					this.userInfo = {}
-					this.group = {};
-					this.groupMembers = [];
-					if (this.chat.type == "GROUP") {
-						this.loadGroup(this.chat.targetId);
+					this.groupId = null;
+					if (this.isGroup) {
+						this.loadGroup(this.conversation.targetId);
 					} else {
-						this.loadFriend(this.chat.targetId);
+						this.loadFriend(this.conversation.targetId);
 						// 加载已读状态
-						this.loadReaded(this.chat.targetId)
+						this.loadReaded(this.conversation.targetId)
 					}
+					await this.chatStore.resetMessages(this.conversation.key)
 					// 滚到底部
 					this.scrollToBottom();
 					this.showSide = false;
 					// 消息已读
-					this.readedMessage()
-					// 初始状态只显示30条消息
-					let size = this.chat.messages.length;
-					this.showMinIdx = size > 30 ? size - 30 : 0;
+					this.readedMessage();
 					// 重置输入框
 					this.resetEditor();
 					// 复位回执消息
 					this.isReceipt = false;
-					// 清空消息临时id
-					this.maxTmpId = 0;
-					// 更新placeholder
-					this.refreshPlaceHolder();
 				}
 			},
 			immediate: true
 		},
-		messageSize: {
-			handler(newSize, oldSize) {
-				if (newSize > oldSize) {
-					// 收到普通消息,则滚动至底部
-					let lastMessage = this.chat.messages[newSize - 1];
-					if (lastMessage && this.$msgType.isNormal(lastMessage.type)) {
-						if (this.isInBottom || lastMessage.selfSend) {
-							this.scrollToBottom();
-						} else {
-							this.newMessageSize++;
-						}
-					}
-				}
-			}
-		},
 		loading: {
-			handler(newLoading, oldLoading) {
-				// 断线重连后，需要更新一下已读状态
-				if (!newLoading && this.isPrivate) {
-					this.loadReaded(this.chat.targetId)
+			async handler(newLoading, oldLoading) {
+				if (newLoading) return;
+				// 断线重连后，需要更新一下已读状态	
+				if (this.isPrivate) {
+					this.loadReaded(this.conversation.targetId);
+				}
+				// 如果用户所在的会话拉到了新的离线消息，需重置会话内的消息，否则新消息会不显示
+				if (this.chatStore.hasMoreLastMessage) {
+					await this.chatStore.resetMessages(this.conversation.key);
+					this.scrollToBottom();
 				}
 			}
 		}
@@ -872,6 +801,15 @@ export default {
 	mounted() {
 		let div = document.getElementById("chatScrollBox");
 		div.addEventListener('scroll', this.onScroll)
+		this.$eventBus.$on('newMessage', async (message) => {
+			// 收到新消息,则滚动至底部
+			if (this.$msgType.isNormal(message.type) || this.$msgType.isAction(message.type)) {
+				// 新消息来时，如果用户本来就在底部不远位置，则直接拉到底部
+				if (this.chatStore.isInBottom || message.selfSend) {
+					this.scrollToBottom();
+				}
+			}
+		});
 	}
 }
 </script>
@@ -919,23 +857,31 @@ export default {
 			}
 		}
 
-		.scroll-to-bottom {
-			text-align: right;
+		.locate-tip {
+			text-align: center;
 			position: absolute;
 			right: 20px;
 			bottom: 230px;
 			color: var(--im-color-primary);
 			font-size: var(--im-font-size);
 			font-weight: 600;
-			background: #eee;
-			padding: 5px 15px;
-			border-radius: 15px;
+			background: white;
+			padding: 8px 16px;
+			border-radius: 18px;
 			cursor: pointer;
 			z-index: 99;
-			box-shadow: var(--im-box-shadow-light);
+			box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+			transition: all 0.3s ease;
+			border: 1px solid rgba(0, 0, 0, 0.06);
+
+			&:hover {
+				transform: translateY(-1px);
+				box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+			}
 		}
 
 		.im-chat-footer {
+			position: relative;
 			display: flex;
 			flex-direction: column;
 			padding: 0;
@@ -997,6 +943,28 @@ export default {
 					position: absolute;
 					bottom: 4px;
 					right: 6px;
+				}
+			}
+
+			.chat-editer-mask {
+				position: absolute;
+				top: 0;
+				left: 0;
+				width: 100%;
+				height: 100%;
+				background: #f8f8f8d0;
+				font-size: var(--im-font-size-large);
+				color: var(--im-text-color-light);
+				display: flex;
+				justify-content: center;
+				align-items: center;
+				border-radius: 10px;
+				border: 1px solid #ddd;
+				z-index: 10;
+
+				.icon {
+					font-size: var(--im-font-size-larger);
+					margin-right: 3px;
 				}
 			}
 		}

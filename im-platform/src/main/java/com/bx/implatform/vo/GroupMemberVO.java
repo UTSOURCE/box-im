@@ -31,4 +31,7 @@ public class GroupMemberVO {
     @Schema(description = "群名备注")
     private String remarkGroupName;
 
+    @Schema(description = "版本号")
+    private Long version;
+
 }

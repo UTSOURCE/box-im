@@ -9,16 +9,15 @@
       <div class="chat-loading" v-if="loading" v-loading="true" element-loading-text="消息接收中..."
         element-loading-spinner="el-icon-loading" element-loading-background="#F9F9F9" element-loading-size="24">
       </div>
-      <el-scrollbar class="chat-items" v-else>
-        <div v-for="(chat, index) in chatStore.chats" :key="index">
-          <chat-item v-show="!chat.delete && chat.showName && chat.showName.includes(searchText)" :chat="chat"
-            :index="index" @click.native="onActiveItem(index)" @delete="onDelItem(index)" @top="onTop(index)"
-            @dnd="onDnd(chat)" :active="chat === chatStore.activeChat"></chat-item>
-        </div>
-      </el-scrollbar>
+      <virtual-scroller class="scroll-box" :items="showConversations">
+        <template v-slot="{ item }">
+          <chat-item :conversation="item" @click.native="onActiveItem(item)" @delete="onDelItem(item)"
+            @info="onShowInfo(item)" @dnd="onDnd(item)" @top="onTop(item)" :active="item === activeConv"></chat-item>
+        </template>
+      </virtual-scroller>
     </resizable-aside>
     <el-container>
-      <chat-box v-if="chatStore.activeChat" :chat="chatStore.activeChat"></chat-box>
+      <chat-box v-if="activeConv" :conversation="activeConv"></chat-box>
     </el-container>
   </el-container>
 </template>
@@ -27,13 +26,15 @@
 import ChatItem from "../components/chat/ChatItem.vue";
 import ChatBox from "../components/chat/ChatBox.vue";
 import ResizableAside from "../components/common/ResizableAside.vue";
+import VirtualScroller from "../components/common/VirtualScroller.vue";
 
 export default {
   name: "chat",
   components: {
     ChatItem,
     ChatBox,
-    ResizableAside
+    ResizableAside,
+    VirtualScroller
   },
   data() {
     return {
@@ -44,24 +45,51 @@ export default {
     }
   },
   methods: {
-    onActiveItem(index) {
-      this.chatStore.setActiveChat(index);
+    onActiveItem(conv) {
+      this.chatStore.setActive(conv.key);
     },
-    onDelItem(index) {
-      this.chatStore.removeChat(index);
+    onDelItem(conv) {
+      const tip = `删除后记录将清空,确认删除与'${conv.showName}'的聊天 ?`;
+      this.$confirm(tip, '删除聊天', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(async () => {
+        if (this.isPrivate(conv) || this.isGroup(conv)) {
+          const data = { chatId: conv.targetId }
+          const chatTypeText = this.isPrivate(conv) ? "private" : "group";
+          await this.$http({
+            url: `/message/${chatTypeText}/deleteChat`,
+            method: 'delete',
+            data: data
+          });
+        }
+        await this.chatStore.remove(conv.key);
+      });
     },
-    onTop(chatIdx) {
-      this.chatStore.moveTop(chatIdx);
+    onShowInfo(conv) {
+      if (this.isPrivate(conv)) {
+        this.$router.push("/home/friend?id=" + conv.targetId);
+      } else if (this.isGroup(conv)) {
+        if (!this.groupStore.isGroup(conv.targetId)) {
+          this.$message.error("您已不在群聊中")
+          return;
+        }
+        this.$router.push("/home/group?id=" + conv.targetId);
+      }
     },
-    onDnd(chat) {
-      if (chat.type == 'PRIVATE') {
-        this.setFriendDnd(chat, chat.targetId, !chat.isDnd)
+    onTop(conv) {
+      this.chatStore.setTop(conv.key, !conv.isTop)
+    },
+    onDnd(conv) {
+      if (this.isPrivate(conv)) {
+        this.setFriendDnd(conv, conv.targetId, !conv.isDnd)
       } else {
-        this.setGroupDnd(chat, chat.targetId, !chat.isDnd)
+        this.setGroupDnd(conv, conv.targetId, !conv.isDnd)
       }
     },
     setFriendDnd(chat, friendId, isDnd) {
-      let formData = {
+      const formData = {
         friendId: friendId,
         isDnd: isDnd
       }
@@ -75,7 +103,7 @@ export default {
       })
     },
     setGroupDnd(chat, groupId, isDnd) {
-      let formData = {
+      const formData = {
         groupId: groupId,
         isDnd: isDnd
       }
@@ -87,11 +115,26 @@ export default {
         this.groupStore.setDnd(groupId, isDnd)
         this.chatStore.setDnd(chat, isDnd)
       })
-    }
+    },
+    isShow(conv) {
+      return !this.searchText || conv.showName.includes(this.searchText)
+    },
+    isPrivate(conv) {
+      return this.$enums.CONVERSATION_TYPE.PRIVATE == conv.type
+    },
+    isGroup(conv) {
+      return this.$enums.CONVERSATION_TYPE.GROUP == conv.type
+    },
   },
   computed: {
+    activeConv() {
+      return this.chatStore.activeConversation;
+    },
     loading() {
       return this.chatStore.loading;
+    },
+    showConversations() {
+      return this.chatStore.conversations.filter(conv => this.isShow(conv));
     }
   }
 }
@@ -99,7 +142,7 @@ export default {
 
 <style lang="scss" scoped>
 .chat-page {
-  
+
   .header {
     height: 50px;
     display: flex;

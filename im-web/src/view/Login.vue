@@ -18,17 +18,18 @@
 						<el-input type="terminal" v-model="loginForm.terminal" autocomplete="off"></el-input>
 					</el-form-item>
 					<el-form-item prop="userName">
-						<el-input type="userName" v-model="loginForm.userName" autocomplete="off" placeholder="用户名"
+						<el-input type="userName" v-model="loginForm.userName" autocomplete="username" placeholder="用户名"
 							prefix-icon="el-icon-user"></el-input>
 					</el-form-item>
 					<el-form-item prop="password">
-						<el-input type="password" v-model="loginForm.password" autocomplete="off" placeholder="密码"
-							prefix-icon="el-icon-lock"></el-input>
+						<el-input type="password" v-model="loginForm.password" autocomplete="current-password"
+							placeholder="密码" prefix-icon="el-icon-lock"></el-input>
 					</el-form-item>
 					<el-form-item class="nav-tool-bar">
 						<el-checkbox v-model="isAutoLogin">自动登录</el-checkbox>
 					</el-form-item>
-					<el-button class="submit-btn" type="primary" @click="submitForm('loginForm')">登录</el-button>
+					<el-button class="submit-btn" type="primary" :loading="submitting"
+						@click="submitForm('loginForm')">登录</el-button>
 				</div>
 				<div class="footer-links">
 					<router-link class="link" to="/register">没有账号，前往注册</router-link>
@@ -41,6 +42,8 @@
 
 <script>
 import Icp from '../components/common/Icp.vue'
+import * as auth from '../api/auth.js'
+
 export default {
 	name: "login",
 	components: {
@@ -67,6 +70,7 @@ export default {
 				password: ''
 			},
 			isAutoLogin: true,
+			submitting: false,
 			rules: {
 				userName: [{
 					validator: checkUsername,
@@ -82,56 +86,48 @@ export default {
 	methods: {
 		submitForm(formName) {
 			this.$refs[formName].validate((valid) => {
-				if (valid) {
-					this.$http({
-						url: "/login",
-						method: 'post',
-						data: this.loginForm
-					})
-						.then((data) => {
-							// 保存密码到cookie(不安全)
-							this.setCookie('username', this.loginForm.userName);
-							this.setCookie('password', this.loginForm.password);
-							// 保存登录信息到本地，兼容新版逻辑
-							localStorage.setItem('isAutoLogin', this.isAutoLogin);
-							localStorage.setItem('username', this.loginForm.userName);
-							localStorage.setItem('password', this.loginForm.password);
-							// 保存token
-							sessionStorage.setItem("accessToken", data.accessToken);
-							sessionStorage.setItem("refreshToken", data.refreshToken);
-							this.$message.success("登录成功");
-							this.$router.push("/home/chat");
-						})
-
+				if (!valid) {
+					return;
 				}
+				this.submitting = true;
+				this.$http({
+					url: "/login",
+					method: 'post',
+					data: this.loginForm
+				}).then((data) => {
+					auth.saveLoginSession(data, {
+						autoLogin: this.isAutoLogin,
+						userName: this.loginForm.userName
+					});
+					this.$message.success("登录成功");
+					this.$router.push("/home/chat");
+				}).finally(() => {
+					this.submitting = false;
+				});
 			});
 		},
-		getCookie(name) {
-			let reg = new RegExp("(^| )" + name + "=([^;]*)(;|$)");
-			let arr = document.cookie.match(reg)
-			if (arr) {
-				return unescape(arr[2]);
+		tryTokenAutoLogin() {
+			if (!auth.isAutoLoginEnabled()) {
+				return;
 			}
-			return '';
-		},
-		setCookie(name, value) {
-			document.cookie = name + "=" + escape(value);
+			this.submitting = true;
+			auth.refreshLogin(this.$http).then(() => {
+				this.$router.push("/home/chat");
+			}).catch(() => {
+				auth.clearLoginSession(true);
+				this.isAutoLogin = false;
+			}).finally(() => {
+				this.submitting = false;
+			});
 		}
-
 	},
 	mounted() {
-		// 兼容旧版本 cookie 数据
-		this.loginForm.userName = this.getCookie("username");
-		this.loginForm.password = this.getCookie("password");
-		// 加载本地自动登录配置
+		auth.removeLegacyPassword();
 		if (localStorage.getItem("isAutoLogin") != null) {
-			this.isAutoLogin = JSON.parse(localStorage.getItem("isAutoLogin"));
-			this.loginForm.userName = localStorage.getItem("username") || this.loginForm.userName;
-			this.loginForm.password = localStorage.getItem("password") || this.loginForm.password;
-			if (this.isAutoLogin && this.loginForm.userName && this.loginForm.password) {
-				this.submitForm('loginForm');
-			}
+			this.isAutoLogin = auth.isAutoLoginEnabled();
 		}
+		this.loginForm.userName = auth.getSavedUsername();
+		this.tryTokenAutoLogin();
 	}
 }
 </script>
